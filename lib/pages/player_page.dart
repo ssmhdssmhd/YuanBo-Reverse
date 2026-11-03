@@ -11,20 +11,27 @@ import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/services/api_service.dart';
+import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 
-/// 玻璃风格播放器（基于官方 video_player 内核）
+/// 播放器（基于官方 video_player 内核，支持两种控制栏样式）
 class PlayerPage extends StatefulWidget {
   final PlayEpisode episode;
   final String vodName;
   final int episodeIndex;
+
+  /// 当前线路的全部剧集（播放器内选集使用）
+  final List<PlayEpisode> episodes;
+  final String lineName;
 
   const PlayerPage({
     super.key,
     required this.episode,
     this.vodName = '',
     this.episodeIndex = 0,
+    this.episodes = const [],
+    this.lineName = '',
   });
 
   @override
@@ -49,14 +56,35 @@ class _PlayerPageState extends State<PlayerPage> {
   double? _dragValue;
   double _speed = 1.0;
 
+  /// 0 = 简洁版，1 = 哔哩哔哩风格（横屏 + 播放器内选集）
+  int _style = SettingsService.currentPlayerStyle;
+  List<PlayEpisode> _episodes = const [];
+  int _episodeIndex = 0;
+
   @override
   void initState() {
     super.initState();
     _episode = widget.episode;
+    _episodes =
+        widget.episodes.isEmpty ? [widget.episode] : widget.episodes;
+    _episodeIndex = widget.episodeIndex;
     final c = Get.isRegistered<HomeController>() ? Get.find<HomeController>() : null;
     _sourceName = c?.currentSource.value.name ?? '';
     _sourceApi = c?.currentSource.value.api ?? '';
-    _initPlayer(widget.episode);
+    _init();
+  }
+
+  Future<void> _init() async {
+    _style = await SettingsService.getPlayerStyle();
+    if (!mounted) return;
+    if (_style == SettingsService.playerBili) {
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      if (!mounted) return;
+    }
+    await _initPlayer(_episode ?? widget.episode);
   }
 
   Future<void> _initPlayer(PlayEpisode ep) async {
@@ -195,6 +223,114 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// 播放指定集数（播放器内选集）
+  Future<void> _switchEpisode(int index) async {
+    if (index < 0 || index >= _episodes.length) return;
+    setState(() => _episodeIndex = index);
+    await _initPlayer(_episodes[index]);
+    _toast('已切换到 ${_episodes[index].name}');
+  }
+
+  Future<void> _nextEpisode() async {
+    if (_episodeIndex + 1 >= _episodes.length) {
+      _toast('已经是最后一集');
+      return;
+    }
+    await _switchEpisode(_episodeIndex + 1);
+  }
+
+  /// 选集面板（哔哩哔哩风格播放器）
+  Future<void> _showEpisodeSheet() async {
+    if (_episodes.isEmpty) return;
+    _hideTimer?.cancel();
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: const Color(0xFF16202B),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.6,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
+                child: Row(
+                  children: [
+                    const Text('选集',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 8),
+                    Text('${widget.lineName.isEmpty ? '' : '${widget.lineName} · '}共${_episodes.length}集',
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 11)),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white54),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 20),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _episodes.asMap().entries.map((e) {
+                      final current = e.key == _episodeIndex;
+                      return GestureDetector(
+                        onTap: () => Navigator.of(ctx).pop(e.key),
+                        child: Container(
+                          width: 72,
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: current
+                                ? const Color(0xFFFB7299)
+                                : Colors.white.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: current
+                                  ? const Color(0xFFFB7299)
+                                  : Colors.white24,
+                            ),
+                          ),
+                          child: Text(
+                            e.value.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: current ? Colors.white : Colors.white70,
+                              fontSize: 12,
+                              fontWeight: current
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null) await _switchEpisode(selected);
+  }
+
   /// 调用本机外部播放器（PotPlayer / MX 等）打开当前播放地址
   Future<void> _openExternal() async {
     final ep = _episode;
@@ -316,14 +452,16 @@ class _PlayerPageState extends State<PlayerPage> {
       _toast('「${s.name}」暂无可用播放地址');
       return;
     }
-    final idx = widget.episodeIndex >= episodes.length
+    final idx = _episodeIndex >= episodes.length
         ? episodes.length - 1
-        : widget.episodeIndex;
+        : _episodeIndex;
     if (mounted) {
       setState(() {
         _switching = false;
         _sourceName = s.name;
         _sourceApi = s.api;
+        _episodes = episodes;
+        _episodeIndex = idx;
       });
     }
     await _initPlayer(episodes[idx]);
@@ -343,14 +481,15 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bili = _style == SettingsService.playerBili;
     return PopScope(
-      canPop: !_fullscreen,
+      canPop: bili || !_fullscreen,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _fullscreen) _toggleFullscreen();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        appBar: _fullscreen
+        appBar: (_fullscreen || bili)
             ? null
             : AppBar(
                 backgroundColor: Colors.black,
@@ -386,7 +525,19 @@ class _PlayerPageState extends State<PlayerPage> {
                 ],
               ),
         body: _error != null
-            ? _buildError()
+            ? Stack(
+                children: [
+                  _buildError(),
+                  if (bili)
+                    SafeArea(
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back_ios_new,
+                            color: Colors.white, size: 20),
+                        onPressed: () => Get.back(),
+                      ),
+                    ),
+                ],
+              )
             : !_ready
                 ? const Center(
                     child: CircularProgressIndicator(color: GlassTheme.accent),
@@ -486,8 +637,16 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  /// PotPlayer 风格底部控制条（极简黑色）
   Widget _buildControls(
+      VideoPlayerController ctrl, double positionMs, double maxMs) {
+    if (_style == SettingsService.playerBili) {
+      return _buildBiliControls(ctrl, positionMs, maxMs);
+    }
+    return _buildSimpleControls(ctrl, positionMs, maxMs);
+  }
+
+  /// PotPlayer 风格底部控制条（极简黑色）
+  Widget _buildSimpleControls(
       VideoPlayerController ctrl, double positionMs, double maxMs) {
     final playing = ctrl.value.isPlaying;
     final barColor = const Color(0xE6111118);
@@ -629,6 +788,179 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// 哔哩哔哩风格控制栏（横屏，播放器内可选集 / 倍速）
+  Widget _buildBiliControls(
+      VideoPlayerController ctrl, double positionMs, double maxMs) {
+    final playing = ctrl.value.isPlaying;
+    const pink = Color(0xFFFB7299);
+    final pos = Duration(milliseconds: positionMs.toInt());
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xCC000000), Color(0x00000000), Color(0xCC000000)],
+          stops: [0.0, 0.3, 1.0],
+        ),
+      ),
+      child: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new,
+                        color: Colors.white, size: 20),
+                    onPressed: () => Get.back(),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.vodName.isEmpty
+                              ? (_episode?.name ?? '')
+                              : '${_episode?.name ?? ''} - ${widget.vodName}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _sourceName.isEmpty
+                              ? '在线播放'
+                              : '来源：$_sourceName',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _barIcon(Icons.open_in_new, _openExternal, size: 20),
+                  _barIcon(Icons.swap_horiz,
+                      _switching ? () {} : _switchSource,
+                      size: 20),
+                ],
+              ),
+            ),
+            const Spacer(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${_fmt(pos)}/${_fmt(ctrl.value.duration)}',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500)),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.5,
+                      activeTrackColor: pink,
+                      inactiveTrackColor: Colors.white24,
+                      thumbColor: pink,
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 5),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 12),
+                    ),
+                    child: Slider(
+                      min: 0,
+                      max: maxMs,
+                      value: positionMs.clamp(0.0, maxMs).toDouble(),
+                      onChanged: (v) => setState(() => _dragValue = v),
+                      onChangeStart: (_) => _hideTimer?.cancel(),
+                      onChangeEnd: (v) {
+                        ctrl.seekTo(Duration(milliseconds: v.toInt()));
+                        setState(() => _dragValue = null);
+                        _scheduleHide();
+                      },
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      _barIcon(playing ? Icons.pause : Icons.play_arrow,
+                          _togglePlay,
+                          size: 26),
+                      _barIcon(Icons.skip_next, _nextEpisode, size: 22),
+                      const Spacer(),
+                      _biliTextAction('选集', _showEpisodeSheet, bold: true),
+                      PopupMenuButton<double>(
+                        initialValue: _speed,
+                        tooltip: '倍速',
+                        color: const Color(0xFF1E1B3A),
+                        onSelected: (v) async {
+                          await ctrl.setPlaybackSpeed(v);
+                          setState(() => _speed = v);
+                          _scheduleHide();
+                        },
+                        itemBuilder: (_) => [0.75, 1.0, 1.25, 1.5, 2.0]
+                            .map((s) => PopupMenuItem<double>(
+                                  value: s,
+                                  child: Text('${s}x',
+                                      style: const TextStyle(
+                                          color: Colors.white)),
+                                ))
+                            .toList(),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 8),
+                          child: Text(
+                            _speed == 1.0 ? '倍速' : '${_speed}x',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 13),
+                          ),
+                        ),
+                      ),
+                      Container(
+                        margin: const EdgeInsets.only(left: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.white24),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text('高清',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 11)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _biliTextAction(String label, VoidCallback onTap,
+      {bool bold = false}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+          ),
         ),
       ),
     );

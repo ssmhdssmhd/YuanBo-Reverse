@@ -244,6 +244,8 @@ class _DetailPageState extends State<DetailPage> {
                       ),
                       onPressed: () => Get.to(() => PlayerPage(
                             episode: ep,
+                            episodes: line.episodes,
+                            lineName: line.name,
                             vodName: vod.vodName,
                             episodeIndex: i,
                           )),

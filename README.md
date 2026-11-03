@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.6 |
+| 当前版本 | v1.0.7 |
 | 构建时间 | 2026-11-03 |
 | 技术栈 | Flutter + GetX + video_player + Dio |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -16,11 +16,12 @@
 
 - 玻璃拟态（Glassmorphism）深色 UI，紫蓝渐变背景
 - 启动公告：读取仓库根目录 `sygg.txt`，每个版本首次启动弹窗展示（含公告图片）
-- 视频源管理：添加资源站、左滑删除、从仓库一键同步
+- 视频源管理：添加资源站、左滑删除、从仓库一键同步（页面顶部新增「设置」入口）
 - 资源自动同步：App 启动 / 检查更新时读取仓库 `zyz.txt`，用户无需手动维护
 - 视频分类浏览、搜索、详情
 - 多线路多剧集在线播放，播放器内可「换源」续播
 - PotPlayer 风格内置播放器，支持调用本机外部播放器（PotPlayer 等）打开当前剧集
+- 设置中心：可选「播放器 1 · 简洁版」或「播放器 2 · 哔哩哔哩风格」（横屏、播放器内选集 / 倍速 / 下一集）
 - 侧边栏：视频源管理 / 分享 App / 检查更新
 - 应用内更新：自动检测 GitHub Release，国内镜像加速下载 APK
 
@@ -77,13 +78,15 @@ lib/
 │   ├── api_service.dart       # MacCMS API
 │   ├── source_service.dart    # 视频源持久化 + 仓库 zyz.txt 同步
 │   ├── announcement_service.dart # 公告缓存 + 仓库 sygg.txt 同步
+│   ├── settings_service.dart  # 应用设置（播放器样式）
 │   └── update_service.dart    # 检查更新 + 镜像下载 APK
 ├── pages/
 │   ├── splash_page.dart       # 启动页（版本首次启动弹出公告）
 │   ├── home_page.dart         # 首页（分类 + 列表 + 侧边栏）
 │   ├── detail_page.dart       # 详情页
-│   ├── player_page.dart       # PotPlayer 风格播放器（换源 / 外部播放）
-│   ├── source_page.dart       # 视频源管理（添加 / 左滑删除 / 同步）
+│   ├── player_page.dart       # 播放器（简洁版 / 哔哩哔哩风格）
+│   ├── source_page.dart       # 视频源管理（添加 / 左滑删除 / 同步 / 设置入口）
+│   ├── settings_page.dart     # 设置页（播放器选择）
 │   └── update_page.dart       # 检查更新
 ├── widgets/
 │   ├── glass_card.dart        # 玻璃卡片 / 视频卡片
@@ -117,6 +120,14 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.7 (20261104)
+- 视频源管理页顶部新增「设置」入口
+- 设置页新增播放器选择，配置持久化保存，重启后保持
+- 播放器 1 · 简洁版：原有 PotPlayer 风格底部控制条
+- 播放器 2 · 哔哩哔哩风格：自动横屏，顶部标题 + 来源信息，粉色进度条，底部选集 / 倍速 / 下一集
+- 播放器内「选集」：底部弹出全部剧集，直接切换播放，无需返回详情页
+- 哔哩哔哩风格下支持换源、外部播放器打开
 
 ### v1.0.6 (20261103)
 - 新增启动公告：仓库 `sygg.txt` 维护公告内容，启动时弹窗展示（含公告图片 `assets/sygg.jpg`）

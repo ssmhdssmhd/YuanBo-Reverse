@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/services/announcement_service.dart';
+import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 import 'package:yuanbo/widgets/announcement_dialog.dart';
@@ -32,6 +33,7 @@ class _SplashPageState extends State<SplashPage>
   }
 
   Future<void> _init() async {
+    await SettingsService.getPlayerStyle();
     var version = '';
     try {
       final pkg = await PackageInfo.fromPlatform();
