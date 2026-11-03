@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:yuanbo/pages/home_page.dart';
-import 'package:yuanbo/pages/settings_page.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
@@ -155,7 +154,6 @@ class _SourcePageState extends State<SourcePage> {
             final list = _c.sources;
             return Column(
               children: [
-                _buildSettingsEntry(),
                 _buildHeader(),
                 Expanded(
                   child: list.isEmpty
@@ -172,49 +170,6 @@ class _SourcePageState extends State<SourcePage> {
               ],
             );
           }),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSettingsEntry() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: GlassCard(
-        onTap: () => Get.to(() => const SettingsPage()),
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: GlassTheme.glassFill,
-                borderRadius: BorderRadius.circular(9),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.settings,
-                  color: GlassTheme.accent, size: 19),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('设置',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold)),
-                  SizedBox(height: 2),
-                  Text('播放器选择 / 通用设置',
-                      style: TextStyle(
-                          color: GlassTheme.textMuted, fontSize: 11)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: GlassTheme.textMuted),
-          ],
         ),
       ),
     );
