@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.12 |
+| 当前版本 | v1.0.13 |
 | 构建时间 | 2026-11-04 |
 | 技术栈 | Flutter + GetX + video_player + Dio |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -41,6 +41,7 @@
 ```
 西瓜资源|https://caiji.xgzyapi.com/api.php/provide/vod/
 天堂资源,https://caiji.dyttzyapi.com/api.php/provide/vod/
+金蟾官方资源|https://zy.jinchanjiexi.net/api.php/provide/vod/
 天堂资源;https://caiji.dyttzyapi.com/api.php/provide/vod/
 西瓜资源|https://caiji.xgzyapi.com/api.php/provide/vod/;天堂资源|https://caiji.dyttzyapi.com/api.php/provide/vod/
 ```
@@ -152,6 +153,10 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.13 (20261104)
+- `zyz.txt` 新增「金蟾官方资源」：`https://zy.jinchanjiexi.net/api.php/provide/vod/`
+- `jiexi.json` 默认加入「福盈公益解析」：`https://www.fuyingapi.top/gongyi/?url=`，升级后 QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 平台页可直接尝试解析
 
 ### v1.0.12 (20261104)
 - 「播放器源」新增「视频解析 → JSON 解析接口」：支持手动添加 / 左滑删除接口，也可从仓库 `jiexi.json` 同步

@@ -1,4 +1,9 @@
 {
   "timeout": 10,
-  "apis": []
+  "apis": [
+    {
+      "name": "福盈公益解析",
+      "url": "https://www.fuyingapi.top/gongyi/?url="
+    }
+  ]
 }
