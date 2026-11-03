@@ -6,8 +6,6 @@ import 'package:android_intent_plus/flag.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:screen_brightness/screen_brightness.dart';
-import 'package:volume_controller/volume_controller.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
@@ -16,6 +14,7 @@ import 'package:yuanbo/pages/parse_api_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
+import 'package:yuanbo/services/system_level_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 
@@ -529,12 +528,8 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> _loadSystemLevels() async {
-    try {
-      _brightness = await ScreenBrightness.instance.application;
-    } catch (_) {}
-    try {
-      _volume = await VolumeController().getVolume();
-    } catch (_) {}
+    _brightness = await SystemLevelService.getBrightness();
+    _volume = await SystemLevelService.getVolume();
   }
 
   void _onVerticalStart(DragStartDetails d) {
@@ -561,10 +556,10 @@ class _PlayerPageState extends State<PlayerPage> {
     final value = (_gestureStartValue + delta).clamp(0.0, 1.0);
     if (_hudType == 'brightness') {
       _brightness = value;
-      ScreenBrightness.instance.setApplicationScreenBrightness(value);
+      SystemLevelService.setBrightness(value);
     } else {
       _volume = value;
-      VolumeController().setVolume(value, showSystemUI: false);
+      SystemLevelService.setVolume(value);
     }
     setState(() => _hudValue = value);
   }
@@ -773,6 +768,9 @@ class _PlayerPageState extends State<PlayerPage> {
     _hintTimer?.cancel();
     _hudTimer?.cancel();
     _disposePreview();
+    if (_style == SettingsService.playerBili) {
+      SystemLevelService.resetBrightness();
+    }
     _videoCtrl?.removeListener(_onTick);
     _videoCtrl?.dispose();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
