@@ -6,6 +6,8 @@ import 'package:android_intent_plus/flag.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:screen_brightness/screen_brightness.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
@@ -52,6 +54,26 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _parsing = false;
   String _parseLog = '正在解析平台视频…';
 
+  // 亮度 / 音量手势（播放器 2）
+  double _brightness = -1;
+  double _volume = -1;
+  String? _hudType;
+  bool _hudVisible = false;
+  double _hudValue = 0;
+  double _gestureStartY = 0;
+  double _gestureStartValue = 0;
+  Timer? _hudTimer;
+
+  // 进度条缩略图预览
+  VideoPlayerController? _previewCtrl;
+  bool _previewReady = false;
+  bool _previewFailed = false;
+  bool _scrubbing = false;
+  double? _previewMs;
+  Timer? _previewThrottle;
+  Timer? _previewDisposeTimer;
+  String _playUrl = '';
+
   bool _controlsVisible = true;
   Timer? _hideTimer;
   Timer? _hintTimer;
@@ -87,6 +109,7 @@ class _PlayerPageState extends State<PlayerPage> {
         DeviceOrientation.landscapeRight,
       ]);
       if (!mounted) return;
+      await _loadSystemLevels();
     }
     await _initPlayer(_episode ?? widget.episode);
   }
@@ -104,6 +127,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _videoCtrl?.removeListener(_onTick);
     _videoCtrl?.dispose();
     _videoCtrl = null;
+    _disposePreview();
 
     var target = ep.url;
     // QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 等平台播放页先走 JSON 解析
@@ -136,6 +160,7 @@ class _PlayerPageState extends State<PlayerPage> {
     }
 
     try {
+      _playUrl = target;
       final ctrl = VideoPlayerController.networkUrl(Uri.parse(target));
       await ctrl.initialize();
       if (!mounted) {
@@ -503,10 +528,251 @@ class _PlayerPageState extends State<PlayerPage> {
     _toast('已切换至 ${s.name}');
   }
 
+  Future<void> _loadSystemLevels() async {
+    try {
+      _brightness = await ScreenBrightness.instance.application;
+    } catch (_) {}
+    try {
+      _volume = await VolumeController().getVolume();
+    } catch (_) {}
+  }
+
+  void _onVerticalStart(DragStartDetails d) {
+    if (_style != SettingsService.playerBili) return;
+    final width = MediaQuery.of(context).size.width;
+    final left = d.localPosition.dx < width / 2;
+    _hudType = left ? 'brightness' : 'volume';
+    _gestureStartY = d.localPosition.dy;
+    _gestureStartValue = left
+        ? (_brightness >= 0 ? _brightness : 0.5)
+        : (_volume >= 0 ? _volume : 0.5);
+    _hudTimer?.cancel();
+    _hideTimer?.cancel();
+    setState(() {
+      _hudVisible = true;
+      _hudValue = _gestureStartValue;
+    });
+  }
+
+  void _onVerticalUpdate(DragUpdateDetails d) {
+    if (_hudType == null) return;
+    final height = MediaQuery.of(context).size.height;
+    final delta = (_gestureStartY - d.localPosition.dy) / (height * 0.6);
+    final value = (_gestureStartValue + delta).clamp(0.0, 1.0);
+    if (_hudType == 'brightness') {
+      _brightness = value;
+      ScreenBrightness.instance.setApplicationScreenBrightness(value);
+    } else {
+      _volume = value;
+      VolumeController().setVolume(value, showSystemUI: false);
+    }
+    setState(() => _hudValue = value);
+  }
+
+  void _onVerticalEnd(DragEndDetails d) {
+    if (_hudType == null) return;
+    _hudTimer?.cancel();
+    _hudTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      setState(() => _hudVisible = false);
+      _hudType = null;
+      _scheduleHide();
+    });
+  }
+
+  Widget _buildGestureHud() {
+    final isBright = _hudType == 'brightness';
+    final icon = isBright
+        ? (_hudValue > 0.5 ? Icons.brightness_high : Icons.brightness_low)
+        : (_hudValue <= 0.01 ? Icons.volume_off : Icons.volume_up);
+    final label = isBright ? '亮度' : '音量';
+    final color =
+        isBright ? const Color(0xFF4FC3F7) : const Color(0xFFFB7299);
+    return Center(
+      child: Container(
+        width: 190,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.78),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Text(label,
+                    style:
+                        const TextStyle(color: Colors.white, fontSize: 12)),
+                const Spacer(),
+                Text('${(_hudValue * 100).round()}%',
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 12)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: _hudValue,
+                minHeight: 4,
+                backgroundColor: Colors.white24,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 创建预览控制器（仅用于进度条缩略图，失败时退化为时间气泡）
+  Future<void> _ensurePreview() async {
+    if (_previewReady || _previewCtrl != null || _previewFailed) return;
+    final url = _playUrl;
+    if (url.isEmpty) return;
+    final c = VideoPlayerController.networkUrl(Uri.parse(url));
+    _previewCtrl = c;
+    try {
+      await c.initialize();
+      await c.pause();
+      if (!mounted) {
+        if (_previewCtrl == c) {
+          _previewCtrl = null;
+          await c.dispose();
+        }
+        return;
+      }
+      if (_previewCtrl != c) return;
+      setState(() => _previewReady = true);
+      final ms = _previewMs;
+      if (ms != null) c.seekTo(Duration(milliseconds: ms.toInt()));
+    } catch (_) {
+      if (_previewCtrl == c) {
+        _previewFailed = true;
+        _previewCtrl = null;
+        await c.dispose();
+      }
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _beginScrub(double ms) {
+    _hideTimer?.cancel();
+    _previewDisposeTimer?.cancel();
+    setState(() {
+      _scrubbing = true;
+      _previewMs = ms;
+    });
+    _ensurePreview();
+  }
+
+  void _requestPreview(double ms) {
+    if (!_scrubbing) return;
+    setState(() => _previewMs = ms);
+    final c = _previewCtrl;
+    if (!_previewReady || c == null) return;
+    _previewThrottle?.cancel();
+    _previewThrottle = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted || _previewCtrl != c) return;
+      final duration = c.value.duration;
+      final target = Duration(milliseconds: ms.toInt());
+      if (duration > Duration.zero && target > duration) return;
+      c.seekTo(target);
+    });
+  }
+
+  void _endScrub() {
+    _previewThrottle?.cancel();
+    setState(() => _scrubbing = false);
+    _previewDisposeTimer?.cancel();
+    _previewDisposeTimer = Timer(const Duration(seconds: 12), _disposePreview);
+    _scheduleHide();
+  }
+
+  void _disposePreview() {
+    _previewThrottle?.cancel();
+    _previewDisposeTimer?.cancel();
+    final c = _previewCtrl;
+    _previewCtrl = null;
+    _previewReady = false;
+    _previewFailed = false;
+    _previewMs = null;
+    _scrubbing = false;
+    c?.dispose();
+  }
+
+  Widget _buildPreviewBubble(double ms) {
+    const width = 152.0;
+    final c = _previewCtrl;
+    final canShow = _previewReady && c != null;
+    return Container(
+      width: width,
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white24),
+        boxShadow: const [
+          BoxShadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: width,
+              height: 84,
+              child: canShow
+                  ? FittedBox(
+                      fit: BoxFit.cover,
+                      clipBehavior: Clip.hardEdge,
+                      child: SizedBox(
+                        width: c.value.size.width > 0 ? c.value.size.width : 160,
+                        height:
+                            c.value.size.height > 0 ? c.value.size.height : 90,
+                        child: VideoPlayer(c),
+                      ),
+                    )
+                  : Center(
+                      child: _previewFailed
+                          ? const Icon(Icons.image_not_supported,
+                              color: Colors.white30, size: 22)
+                          : const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white38),
+                            ),
+                    ),
+            ),
+            Container(
+              width: width,
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              color: Colors.black87,
+              alignment: Alignment.center,
+              child: Text(
+                _fmt(Duration(milliseconds: ms.toInt())),
+                style:
+                    const TextStyle(color: Colors.white70, fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _hideTimer?.cancel();
     _hintTimer?.cancel();
+    _hudTimer?.cancel();
+    _disposePreview();
     _videoCtrl?.removeListener(_onTick);
     _videoCtrl?.dispose();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -653,6 +919,12 @@ class _PlayerPageState extends State<PlayerPage> {
       onTap: _toggleControls,
       onDoubleTapDown: (d) => _doubleTapPos = d.localPosition,
       onDoubleTap: _handleDoubleTap,
+      onVerticalDragStart:
+          _style == SettingsService.playerBili ? _onVerticalStart : null,
+      onVerticalDragUpdate:
+          _style == SettingsService.playerBili ? _onVerticalUpdate : null,
+      onVerticalDragEnd:
+          _style == SettingsService.playerBili ? _onVerticalEnd : null,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -671,6 +943,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     strokeWidth: 2, color: Colors.white70),
               ),
             ),
+          if (_hudVisible) _buildGestureHud(),
           AnimatedOpacity(
             opacity: _controlsVisible ? 1 : 0,
             duration: const Duration(milliseconds: 200),
@@ -925,29 +1198,54 @@ class _PlayerPageState extends State<PlayerPage> {
                           color: Colors.white,
                           fontSize: 12,
                           fontWeight: FontWeight.w500)),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 2.5,
-                      activeTrackColor: pink,
-                      inactiveTrackColor: Colors.white24,
-                      thumbColor: pink,
-                      thumbShape:
-                          const RoundSliderThumbShape(enabledThumbRadius: 5),
-                      overlayShape:
-                          const RoundSliderOverlayShape(overlayRadius: 12),
-                    ),
-                    child: Slider(
-                      min: 0,
-                      max: maxMs,
-                      value: positionMs.clamp(0.0, maxMs).toDouble(),
-                      onChanged: (v) => setState(() => _dragValue = v),
-                      onChangeStart: (_) => _hideTimer?.cancel(),
-                      onChangeEnd: (v) {
-                        ctrl.seekTo(Duration(milliseconds: v.toInt()));
-                        setState(() => _dragValue = null);
-                        _scheduleHide();
-                      },
-                    ),
+                  LayoutBuilder(
+                    builder: (ctx, cons) {
+                      final maxW = cons.maxWidth;
+                      final frac =
+                          maxMs <= 0 ? 0.0 : (positionMs / maxMs).clamp(0.0, 1.0);
+                      const bubbleW = 152.0;
+                      final maxLeft = (maxW - bubbleW) > 0 ? maxW - bubbleW : 0.0;
+                      final left =
+                          (frac * maxW - bubbleW / 2).clamp(0.0, maxLeft).toDouble();
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 2.5,
+                              activeTrackColor: pink,
+                              inactiveTrackColor: Colors.white24,
+                              thumbColor: pink,
+                              thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 5),
+                              overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 12),
+                            ),
+                            child: Slider(
+                              min: 0,
+                              max: maxMs,
+                              value: positionMs.clamp(0.0, maxMs).toDouble(),
+                              onChanged: (v) {
+                                setState(() => _dragValue = v);
+                                _requestPreview(v);
+                              },
+                              onChangeStart: (v) => _beginScrub(v),
+                              onChangeEnd: (v) {
+                                ctrl.seekTo(Duration(milliseconds: v.toInt()));
+                                setState(() => _dragValue = null);
+                                _endScrub();
+                              },
+                            ),
+                          ),
+                          if (_scrubbing && _previewMs != null)
+                            Positioned(
+                              left: left,
+                              bottom: 36,
+                              child: _buildPreviewBubble(_previewMs!),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                   Row(
                     children: [
