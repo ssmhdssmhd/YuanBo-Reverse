@@ -1,0 +1,53 @@
+name: yuanbo
+description: "沫兮源播 - 玻璃拟态影视播放器"
+publish_to: 'none'
+
+version: 1.0.1+2
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # 状态管理
+  get: ^4.6.6
+
+  # 网络
+  dio: ^5.7.0
+
+  # 图片
+  cached_network_image: ^3.4.1
+
+  # 播放器
+  video_player: ^2.9.2
+  chewie: ^1.8.5
+
+  # 分享 / 版本 / 文件
+  share_plus: ^10.0.2
+  package_info_plus: ^8.1.0
+  path_provider: ^2.1.4
+  open_filex: ^4.5.0
+  url_launcher: ^6.3.1
+
+  # 工具
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/ic_launcher.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#0F0C29"
+  adaptive_icon_foreground: "assets/ic_launcher.png"
+
+flutter:
+  uses-material-design: true

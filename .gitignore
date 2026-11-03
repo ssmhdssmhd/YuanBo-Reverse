@@ -12,3 +12,14 @@ build/
 out/
 *.log
 *.tmp
+
+# Flutter / Android
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+local.properties
+android/.gradle/
+android/app/.cxx/
+*.iml
+.gradle/

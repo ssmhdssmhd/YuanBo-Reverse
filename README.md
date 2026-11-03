@@ -1,72 +1,108 @@
-# 源播 (YuanBo) APK 逆向工程
+# 沫兮源播
 
-> 对「源播 v1.0.0」APK 进行逆向分析后的产物仓库。
-> 应用包名：`com.muhua.mu_hua_movie`（木花影视 / 源播）
+> 玻璃拟态影视播放器，基于「源播」APK 逆向分析重建。
+> 包名：`com.moxi.yuanbo`
 
 ## 版本信息
 
 | 项目 | 值 |
 |------|------|
-| 仓库版本 | v1.0.0 |
-| 原始 APK | 源播_v1.0.0 |
-| 逆向时间 | 2026-11-03 |
-| 逆向工具 | JADX 1.5.1（Java/Kotlin 反编译） + strings（Dart AOT 符号提取） |
+| 当前版本 | v1.0.1 |
+| 构建时间 | 2026-11-03 |
+| 技术栈 | Flutter + GetX + Chewie + Dio |
+| 编译方式 | GitHub Actions 云端编译 |
 
-## 目录结构
+## 功能特性
+
+- 玻璃拟态（Glassmorphism）深色 UI，紫蓝渐变背景
+- 多视频源切换（速度 / 天空 / 卧龙 / 百度资源）
+- 视频分类浏览、搜索、详情
+- 多线路多剧集在线播放
+- 侧边栏：视频源管理 / 分享 App / 检查更新
+- 应用内更新：自动检测 GitHub Release，国内镜像加速下载 APK
+
+## 视频源
+
+基于 MacCMS V10 协议，内置 4 个视频源：
+
+| 名称 | 接口 |
+|------|------|
+| 速度资源 | `https://sdzyapi.com/api.php/provide/vod/` |
+| 天空资源 | `https://api.tiankongapi.com/api.php/provide/vod/` |
+| 卧龙资源 | `https://collect.wolongzyw.com/api.php/provide/vod/` |
+| 百度资源 | `https://api.apibdzy.com/api.php/provide/vod/` |
+
+## 应用内更新
+
+更新流程：
+1. 侧边栏点击「检查更新」
+2. 请求 GitHub 最新 Release API
+3. 若有新版本，显示版本号与更新日志
+4. 点击「立即更新」，通过国内镜像（gh-proxy / ghproxy 等）下载 APK
+5. 下载完成后调起系统安装器
+
+## 项目结构
 
 ```
-.
-├── java/                 # JADX 反编译的 Java/Kotlin 源码（2465 个 .java 文件）
-│   ├── com/muhua/mu_hua_movie/   # 应用主包（MyApp / MainActivity / R）
-│   ├── io/flutter/               # Flutter Android 嵌入层
-│   ├── dev/fluttercommunity/     # flutter_community 插件
-│   └── ...                      # 第三方依赖（okhttp3、androidx、kotlin 等）
-├── resources/            # 反编译的 Android 资源
-│   ├── AndroidManifest.xml      # 清单文件
-│   ├── assets/flutter_assets/   # Flutter 资源清单
-│   ├── res/                     # 资源（layout/drawable/values 等）
-│   └── ...
-├── native/               # 原生库与 DEX
-│   ├── classes.dex               # 原始 DEX
-│   └── lib/{arm64-v8a,armeabi-v7a,x86_64}/
-│       ├── libapp.so             # Dart AOT 编译产物（核心业务逻辑）
-│       └── libflutter.so         # Flutter 引擎
-└── analysis/             # 逆向分析文档
-    ├── api_endpoints.md          # API 端点与 VOD 数据模型
-    └── dart_architecture.md      # Dart 应用架构
+lib/
+├── main.dart                  # 入口
+├── theme/glass_theme.dart     # 玻璃拟态主题
+├── models/                    # 数据模型（VOD / 分类 / 更新信息）
+├── services/
+│   ├── api_service.dart       # MacCMS API
+│   └── update_service.dart    # 检查更新 + 镜像下载 APK
+├── pages/
+│   ├── splash_page.dart       # 启动页
+│   ├── home_page.dart         # 首页（分类 + 列表 + 侧边栏）
+│   ├── detail_page.dart       # 详情页
+│   ├── player_page.dart       # 播放器
+│   ├── source_page.dart       # 视频源管理
+│   └── update_page.dart       # 检查更新
+├── widgets/glass_card.dart    # 玻璃卡片 / 视频卡片
+└── utils/constants.dart       # 常量与视频源配置
 ```
 
-## 应用架构概要
+## 编译
 
-- **技术栈**：Flutter + GetX + extended_betterplayer + Dio
-- **视频源协议**：MacCMS V10（`api.php/provide/vod/`）
-- **内置视频源**：
-  - 速度资源 `https://sdzyapi.com/api.php/provide/vod/`
-  - 天空资源 `https://api.tiankongapi.com/api.php/provide/vod/`
-  - 卧龙资源 `https://collect.wolongzyw.com/api.php/provide/vod/`
-  - 百度资源 `https://api.apibdzy.com/api.php/provide/vod/`
-- **版本更新**：`https://ec2-3-85-234-92.compute-1.amazonaws.com/version_update.json`
+### 本地
 
-详细分析见 [analysis/dart_architecture.md](analysis/dart_architecture.md) 与 [analysis/api_endpoints.md](analysis/api_endpoints.md)。
+```bash
+flutter pub get
+flutter build apk --release
+```
 
-## 逆向说明
+### 云端（GitHub Actions）
 
-由于应用基于 Flutter，业务逻辑以 Dart AOT 方式编译进 `libapp.so`，无法直接还原为 Dart 源码。本仓库提供：
+推送代码到 `main` 分支或打 `v*` tag 自动触发 `.github/workflows/build.yml`，产出签名 APK。
 
-1. **Java/Kotlin 层**：JADX 完整反编译（Android 入口、Flutter 嵌入、插件桥接）。
-2. **资源层**：AndroidManifest、res、flutter_assets。
-3. **原生层**：完整 `.so` 供进一步符号/反汇编分析。
-4. **分析文档**：从 `libapp.so` 提取的 Dart 符号表、API 端点、数据模型字段，可据此重建 Dart 业务代码。
+## 签名
+
+使用固定签名 `android/app/release.keystore`（别名 `yuanbo`），避免签名冲突。
+
+## 逆向分析
+
+原始 APK 逆向产物位于 [reverse/](reverse/) 目录：
+- `reverse/java/` - JADX 反编译的 Java/Kotlin 源码
+- `reverse/resources/` - Android 资源
+- `reverse/native/` - 原生库（libapp.so / libflutter.so）
+- `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
 
+### v1.0.1 (202611030000)
+- 应用重命名为「沫兮源播」
+- 全新玻璃拟态 UI（深色 + 紫蓝渐变）
+- 重建 Flutter 项目，实现首页 / 详情 / 播放器 / 源管理
+- 新增「检查更新」功能，支持 GitHub Release 国内镜像加速下载
+- 多视频源切换（速度 / 天空 / 卧龙 / 百度）
+- 配置 GitHub Actions 云端编译与固定签名
+
 ### v1.0.0 (202611030000)
 - 初始逆向版本
-- 完成 JADX 反编译 Java/Kotlin 源码（2465 文件）
-- 完成 Android 资源与 Flutter 资产提取
-- 提取原生库（arm64-v8a / armeabi-v7a / x86_64）
-- 输出 Dart 架构分析与 API 端点清单
+- JADX 反编译 Java/Kotlin 源码
+- Android 资源与 Flutter 资产提取
+- Dart 架构分析与 API 端点清单
 
 ## License
 
-仅供学习与逆向研究使用。
+仅供学习与研究使用。
