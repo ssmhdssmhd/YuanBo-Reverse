@@ -92,6 +92,23 @@ class AppConstants {
     ];
   }
 
+  /// 网页播放接口配置文件（仓库 webplay.json）
+  static const String webPlayConfigPath = 'webplay.json';
+  static const String webPlayConfigRaw =
+      'https://raw.githubusercontent.com/$githubRepo/main/$webPlayConfigPath';
+
+  static List<String> webPlayConfigUrls() {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    return [
+      'https://gh-proxy.com/$webPlayConfigRaw?t=$ts',
+      'https://ghproxy.net/$webPlayConfigRaw?t=$ts',
+      'https://gh.api.99988866.xyz/$webPlayConfigRaw?t=$ts',
+      'https://mirror.ghproxy.com/$webPlayConfigRaw?t=$ts',
+      '$webPlayConfigRaw?t=$ts',
+      'https://fastly.jsdelivr.net/gh/$githubRepo@main/$webPlayConfigPath?t=$ts',
+    ];
+  }
+
   /// 版本更新公告文件（gxgg.txt，每次版本发布时更新）
   static const String updateNoticePath = 'gxgg.txt';
   static const String updateNoticeRaw =

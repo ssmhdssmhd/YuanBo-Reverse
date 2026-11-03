@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:yuanbo/pages/parse_api_page.dart';
+import 'package:yuanbo/pages/web_play_api_page.dart';
 import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
+import 'package:yuanbo/services/web_play_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
 
@@ -17,7 +19,8 @@ class PlayerSourcePage extends StatefulWidget {
 class _PlayerSourcePageState extends State<PlayerSourcePage> {
   int _style = SettingsService.currentPlayerStyle;
   int _parseCount = 0;
-  String _webPlay = SettingsService.defaultWebPlayUrl;
+  int _webPlayCount = 0;
+  String _webPlayFirst = WebPlayService.defaultUrl;
 
   @override
   void initState() {
@@ -27,86 +30,23 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
 
   Future<void> _load() async {
     final style = await SettingsService.getPlayerStyle();
-    final webPlay = await SettingsService.getWebPlayUrl();
     await ParseService.load();
+    await WebPlayService.load();
     if (mounted) {
       setState(() {
         _style = style;
-        _webPlay = webPlay;
         _parseCount = ParseService.count;
+        _webPlayCount = WebPlayService.count;
+        _webPlayFirst = WebPlayService.apis.isNotEmpty
+            ? WebPlayService.apis.first.url
+            : WebPlayService.defaultUrl;
       });
     }
   }
 
-  Future<void> _editWebPlay() async {
-    final ctrl = TextEditingController(text: _webPlay);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1B3A),
-        title: const Text('网页播放接口',
-            style: TextStyle(color: Colors.white, fontSize: 17)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: ctrl,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              decoration: InputDecoration(
-                hintText: SettingsService.defaultWebPlayUrl,
-                hintStyle: const TextStyle(
-                    color: GlassTheme.textMuted, fontSize: 12),
-                filled: true,
-                fillColor: GlassTheme.glassFill,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: GlassTheme.glassBorder),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '支持 {url} 占位符；不写占位符时自动在末尾拼接播放页地址。\n'
-              'JSON 解析失败时自动用浏览器打开。',
-              style: TextStyle(
-                  color: GlassTheme.textMuted, fontSize: 11, height: 1.5),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () =>
-                Navigator.of(ctx).pop(SettingsService.defaultWebPlayUrl),
-            child: const Text('恢复默认'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-    if (result == null) {
-      Future.delayed(const Duration(milliseconds: 400), ctrl.dispose);
-      return;
-    }
-    await SettingsService.setWebPlayUrl(result);
-    final saved = await SettingsService.getWebPlayUrl();
-    Future.delayed(const Duration(milliseconds: 400), ctrl.dispose);
-    if (!mounted) return;
-    setState(() => _webPlay = saved);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('已保存网页播放接口：$saved'),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF2A2648),
-      ),
-    );
+  Future<void> _openWebPlayApis() async {
+    await Get.to(() => const WebPlayApiPage());
+    await _load();
   }
 
   Future<void> _select(int style) async {
@@ -233,7 +173,7 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
                         fontWeight: FontWeight.bold)),
               ),
               GlassCard(
-                onTap: _editWebPlay,
+                onTap: _openWebPlayApis,
                 padding: const EdgeInsets.all(14),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -254,15 +194,33 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('网页播放接口',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold)),
+                          Row(
+                            children: [
+                              const Text('网页播放接口',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold)),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: GlassTheme.primary.withValues(alpha: 0.3),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text('$_webPlayCount 个',
+                                    style: const TextStyle(
+                                        color: Colors.white, fontSize: 10)),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 4),
                           Text(
-                            '当前：$_webPlay\n'
-                            'JSON 解析失败时自动用浏览器打开该接口并拼接播放页地址',
+                            '内置播放，不打开浏览器\n'
+                            '当前：$_webPlayFirst',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                                 color: GlassTheme.textMuted,
                                 fontSize: 12,
@@ -272,8 +230,8 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    const Icon(Icons.edit_outlined,
-                        color: GlassTheme.textMuted, size: 20),
+                    const Icon(Icons.chevron_right,
+                        color: GlassTheme.textMuted, size: 22),
                   ],
                 ),
               ),

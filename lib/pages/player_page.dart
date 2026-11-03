@@ -12,10 +12,12 @@ import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/pages/cast_page.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/parse_api_page.dart';
+import 'package:yuanbo/pages/web_player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/system_level_service.dart';
+import 'package:yuanbo/services/web_play_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 
@@ -556,22 +558,18 @@ class _PlayerPageState extends State<PlayerPage> {
     if (mounted) _toast('未找到可用的外部播放器，建议安装 PotPlayer');
   }
 
-  /// 网页播放：在浏览器中打开「接口地址 + 播放页地址」
+  /// 网页播放：App 内置 WebView 打开「接口地址 + 播放页地址」，不跳浏览器
   Future<void> _openWebPlay(String videoUrl, {bool auto = false}) async {
-    final base = (await SettingsService.getWebPlayUrl()).trim();
-    if (base.isEmpty) return;
-    final encoded = Uri.encodeComponent(videoUrl);
-    final target = base.contains('{url}')
-        ? base.replaceAll('{url}', encoded)
-        : '$base$encoded';
-    final uri = Uri.tryParse(target);
-    if (uri == null) return;
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok && !auto) _toast('未找到可用的浏览器');
-    } catch (_) {
-      if (!auto) _toast('网页播放打开失败');
+    await WebPlayService.load();
+    if (WebPlayService.count == 0) {
+      if (!auto) _toast('请先在「播放器源 → 网页播放接口」添加接口');
+      return;
     }
+    if (!mounted) return;
+    await Get.to(() => WebPlayerPage(
+          pageUrl: videoUrl,
+          title: '${widget.vodName} ${_episode?.name ?? ''}'.trim(),
+        ));
   }
 
   /// 切换资源站：按片名在其他源重新搜索并续播当前集
