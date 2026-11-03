@@ -38,25 +38,35 @@ class AppConstants {
   ];
 
   /// 视频源配置的加速地址（依次尝试，最后直连）
-  static const List<String> sourceConfigUrls = [
-    'https://fastly.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath',
-    'https://cdn.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath',
-    'https://gh-proxy.com/$githubRaw',
-    'https://ghproxy.net/$githubRaw',
-    githubRaw,
-  ];
+  /// 带时间戳参数，避开 jsDelivr / raw CDN 缓存，仓库更新后能及时生效
+  static List<String> sourceConfigUrls() {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    return [
+      'https://fastly.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath?t=$ts',
+      'https://cdn.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath?t=$ts',
+      'https://gh-proxy.com/$githubRaw?t=$ts',
+      'https://ghproxy.net/$githubRaw?t=$ts',
+      'https://gh.api.99988866.xyz/$githubRaw?t=$ts',
+      '$githubRaw?t=$ts',
+    ];
+  }
 
   /// 首页公告文件（sygg.txt）与默认公告
   static const String announcementPath = 'sygg.txt';
   static const String announcementRaw =
       'https://raw.githubusercontent.com/$githubRepo/main/$announcementPath';
-  static const List<String> announcementUrls = [
-    'https://fastly.jsdelivr.net/gh/$githubRepo@main/$announcementPath',
-    'https://cdn.jsdelivr.net/gh/$githubRepo@main/$announcementPath',
-    'https://gh-proxy.com/$announcementRaw',
-    'https://ghproxy.net/$announcementRaw',
-    announcementRaw,
-  ];
+
+  /// 公告加速地址（带时间戳避开 CDN 缓存）
+  static List<String> announcementUrls() {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    return [
+      'https://fastly.jsdelivr.net/gh/$githubRepo@main/$announcementPath?t=$ts',
+      'https://cdn.jsdelivr.net/gh/$githubRepo@main/$announcementPath?t=$ts',
+      'https://gh-proxy.com/$announcementRaw?t=$ts',
+      'https://ghproxy.net/$announcementRaw?t=$ts',
+      '$announcementRaw?t=$ts',
+    ];
+  }
   static const String defaultAnnouncement = '📢公告\n'
       '本软件为内测版本，仅限内测使用，专人维护。\n'
       '开发者：射手沫蝴蝶\n'

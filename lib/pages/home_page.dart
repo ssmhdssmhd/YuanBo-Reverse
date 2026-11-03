@@ -191,19 +191,121 @@ class HomePage extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          Obx(() => GlassContainer(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                borderRadius: 20,
-                child: Text(
-                  c.currentSource.value.name,
-                  style: const TextStyle(
-                    color: GlassTheme.accent,
-                    fontSize: 12,
+          Obx(() => GestureDetector(
+                onTap: () => _showSourcePicker(context, c),
+                child: GlassContainer(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  borderRadius: 20,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        c.currentSource.value.name,
+                        style: const TextStyle(
+                          color: GlassTheme.accent,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.swap_horiz,
+                          color: GlassTheme.accent, size: 14),
+                    ],
                   ),
                 ),
               )),
         ],
+      ),
+    );
+  }
+
+  /// 点击右上角资源名切换资源站
+  Future<void> _showSourcePicker(
+      BuildContext context, HomeController c) async {
+    final selected = await showModalBottomSheet<VideoSource>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1B3A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 4, 4),
+              child: Row(
+                children: [
+                  const Text('切换资源站',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      Get.to(() => const SourcePage());
+                    },
+                    child: const Text('管理视频源',
+                        style: TextStyle(color: GlassTheme.accent, fontSize: 12)),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: c.sources.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('暂无资源站，请先同步或添加',
+                          style: TextStyle(color: GlassTheme.textMuted)),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: c.sources.length,
+                      itemBuilder: (_, i) {
+                        final s = c.sources[i];
+                        final current = s.api == c.currentSource.value.api;
+                        return ListTile(
+                          leading: Icon(
+                            current
+                                ? Icons.radio_button_checked
+                                : Icons.live_tv,
+                            color: current
+                                ? GlassTheme.accent
+                                : GlassTheme.textMuted,
+                          ),
+                          title: Text(s.name,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 14)),
+                          subtitle: Text(s.api,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: GlassTheme.textMuted, fontSize: 10)),
+                          trailing: current
+                              ? const Text('使用中',
+                                  style: TextStyle(
+                                      color: GlassTheme.accent, fontSize: 11))
+                              : null,
+                          onTap: () => Navigator.of(ctx).pop(s),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || selected.api == c.currentSource.value.api) return;
+    c.switchSource(selected);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已切换到 ${selected.name}'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF2A2648),
       ),
     );
   }

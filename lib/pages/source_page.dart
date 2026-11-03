@@ -24,6 +24,8 @@ class _SourcePageState extends State<SourcePage> {
     _c = Get.isRegistered<HomeController>()
         ? Get.find<HomeController>()
         : Get.put(HomeController());
+    // 进入页面自动同步一次，仓库 zyz.txt 更新后无需手动点击
+    _c.syncSources();
   }
 
   void _toast(String msg) {

@@ -56,7 +56,7 @@ class SourceService {
 
   /// 从仓库拉取 zyz.txt（多镜像加速，失败自动降级）
   static Future<List<VideoSource>> fetchRemote() async {
-    for (final url in AppConstants.sourceConfigUrls) {
+    for (final url in AppConstants.sourceConfigUrls()) {
       try {
         final res = await _dio.get<String>(
           url,
