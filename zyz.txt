@@ -2,3 +2,4 @@
 # 格式：资源站名称|接口地址，每行一个，# 开头为注释
 # App 会自动从本仓库同步该文件，用户无需手动添加
 西瓜资源|https://caiji.xgzyapi.com/api.php/provide/vod/
+天堂资源|https://caiji.dyttzyapi.com/api.php/provide/vod/
