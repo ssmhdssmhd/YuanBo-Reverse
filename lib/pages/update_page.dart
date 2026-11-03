@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:yuanbo/models/update_info.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/services/update_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
+import 'package:yuanbo/utils/constants.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
 
 class UpdatePage extends StatefulWidget {
@@ -192,6 +194,48 @@ class _UpdatePageState extends State<UpdatePage> {
                               style: const TextStyle(
                                   color: Colors.redAccent, fontSize: 13)),
                         ],
+                      ] else if (_service.lastError != null) ...[
+                        GlassCard(
+                          child: Row(
+                            children: [
+                              const Icon(Icons.wifi_off,
+                                  color: Colors.orangeAccent),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(_service.lastError!,
+                                    style: const TextStyle(
+                                        color: Colors.white, height: 1.4)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            await launchUrl(
+                              Uri.parse(AppConstants.releasePage),
+                              mode: LaunchMode.externalApplication,
+                            );
+                          },
+                          icon: const Icon(Icons.open_in_browser),
+                          label: const Text('在浏览器中打开下载页'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: GlassTheme.accent,
+                            side: const BorderSide(color: GlassTheme.glassBorder),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _checking = true;
+                              _init();
+                            });
+                          },
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('重试'),
+                        ),
                       ] else ...[
                         GlassCard(
                           child: const Row(

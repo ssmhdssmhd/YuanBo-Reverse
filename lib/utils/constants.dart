@@ -19,6 +19,15 @@ class AppConstants {
   static const String githubApi = 'https://api.github.com/repos/$githubRepo/releases/latest';
   static const String githubRaw =
       'https://raw.githubusercontent.com/$githubRepo/main/$sourceConfigPath';
+  static const String releasePage = 'https://github.com/$githubRepo/releases/latest';
+
+  /// 更新检查接口（国内镜像优先，最后直连）
+  static const List<String> releaseApiUrls = [
+    'https://gh-proxy.com/$githubApi',
+    'https://gh.api.99988866.xyz/$githubApi',
+    'https://mirror.ghproxy.com/$githubApi',
+    githubApi,
+  ];
 
   /// GitHub 国内镜像加速（用于下载 APK）
   static const List<String> githubMirrors = [
