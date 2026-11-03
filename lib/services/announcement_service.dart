@@ -28,7 +28,7 @@ class AnnouncementService {
 
   /// 从仓库同步公告（多镜像加速）
   static Future<void> sync() async {
-    for (final url in AppConstants.announcementUrls) {
+    for (final url in AppConstants.announcementUrls()) {
       try {
         final res = await _dio.get<String>(
           url,
