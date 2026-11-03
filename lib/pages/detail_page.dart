@@ -6,6 +6,7 @@ import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
+import 'package:yuanbo/utils/text_utils.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
 
 class DetailPage extends StatefulWidget {
@@ -61,7 +62,8 @@ class _DetailPageState extends State<DetailPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildInfo(vod),
-                        if (vod.vodContent.isNotEmpty) _buildContent(vod),
+                        if (TextUtils.cleanHtml(vod.vodContent).isNotEmpty)
+                          _buildContent(vod),
                         ..._buildPlayLines(vod),
                         const SizedBox(height: 40),
                       ],
@@ -190,7 +192,7 @@ class _DetailPageState extends State<DetailPage> {
                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Text(
-              vod.vodContent.replaceAll(RegExp(r'<[^>]+>'), ''),
+              TextUtils.cleanHtml(vod.vodContent),
               style: const TextStyle(color: GlassTheme.textSecondary, height: 1.6),
             ),
           ],

@@ -48,8 +48,9 @@ class SourceService {
   static List<VideoSource> parse(String text) {
     final list = <VideoSource>[];
     for (final line in const LineSplitter().convert(text)) {
-      final source = VideoSource.fromLine(line);
-      if (source != null && !list.contains(source)) list.add(source);
+      for (final source in VideoSource.parseLine(line)) {
+        if (!list.contains(source)) list.add(source);
+      }
     }
     return list;
   }

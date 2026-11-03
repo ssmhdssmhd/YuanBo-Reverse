@@ -85,16 +85,38 @@ class VideoSource {
         api: json['api']?.toString() ?? '',
       );
 
-  /// 解析 zyz.txt 中的一行：`名称|接口地址`
-  static VideoSource? fromLine(String raw) {
-    final line = raw.trim();
-    if (line.isEmpty || line.startsWith('#')) return null;
-    final idx = line.indexOf('|');
-    if (idx <= 0) return null;
-    final name = line.substring(0, idx).trim();
-    final api = line.substring(idx + 1).trim();
-    if (name.isEmpty || !api.startsWith('http')) return null;
-    return VideoSource(name: name, api: api);
+  /// 解析 zyz.txt 中的一行
+  ///
+  /// 兼容以下写法（名称与地址之间可用 `|`、`,`、`;` 或中文全角分隔符）：
+  /// - `名称|https://...`
+  /// - `名称,https://...`
+  /// - `名称;https://...`
+  /// - `名称|https://...;名称|https://...`（一行多个资源站）
+  static List<VideoSource> parseLine(String raw) {
+    var line = raw.trim();
+    if (line.isEmpty || line.startsWith('#')) return const [];
+    line = line.replaceAll('，', ',').replaceAll('；', ';');
+
+    final result = <VideoSource>[];
+    String? pendingName;
+    for (final token in line.split(RegExp(r'[|,;]'))) {
+      final value = token.trim();
+      if (value.isEmpty) continue;
+      if (value.startsWith('http')) {
+        final api = value.replaceAll(RegExp(r'[|,;]+$'), '');
+        final name = pendingName;
+        if (name != null &&
+            name.isNotEmpty &&
+            api.startsWith('http') &&
+            !result.contains(VideoSource(name: name, api: api))) {
+          result.add(VideoSource(name: name, api: api));
+        }
+        pendingName = null;
+      } else {
+        pendingName = value;
+      }
+    }
+    return result;
   }
 
   Map<String, dynamic> toJson() => {'name': name, 'api': api};

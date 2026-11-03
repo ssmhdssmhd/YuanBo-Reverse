@@ -2,7 +2,7 @@ name: yuanbo
 description: "沫兮源播 - 玻璃拟态影视播放器"
 publish_to: 'none'
 
-version: 1.0.9+10
+version: 1.0.10+11
 
 environment:
   sdk: ^3.13.7

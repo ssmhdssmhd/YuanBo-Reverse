@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.9 |
+| 当前版本 | v1.0.10 |
 | 构建时间 | 2026-11-04 |
 | 技术栈 | Flutter + GetX + video_player + Dio |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -35,10 +35,13 @@
 |------|------|
 | 西瓜资源 | `https://caiji.xgzyapi.com/api.php/provide/vod/` |
 
-`zyz.txt` 格式（每行一个，`#` 为注释）：
+`zyz.txt` 格式（每行一个，`#` 为注释；名称与地址之间支持 `|`、`,`、`;`，也支持一行多个资源站）：
 
 ```
 西瓜资源|https://caiji.xgzyapi.com/api.php/provide/vod/
+天堂资源,https://caiji.dyttzyapi.com/api.php/provide/vod/
+天堂资源;https://caiji.dyttzyapi.com/api.php/provide/vod/
+西瓜资源|https://caiji.xgzyapi.com/api.php/provide/vod/;天堂资源|https://caiji.dyttzyapi.com/api.php/provide/vod/
 ```
 
 修改并提交该文件后，所有用户打开 App 或点击「检查更新 / 同步」即可自动获取最新资源，无需手动添加。
@@ -88,10 +91,12 @@ lib/
 │   ├── source_page.dart       # 视频源管理（添加 / 左滑删除 / 同步）
 │   ├── settings_page.dart     # 设置页（播放器选择）
 │   └── update_page.dart       # 检查更新
+├── utils/
+│   ├── constants.dart         # 常量 / 视频源解析
+│   └── text_utils.dart        # 简介 HTML 清洗
 ├── widgets/
 │   ├── glass_card.dart        # 玻璃卡片 / 视频卡片
 │   └── announcement_dialog.dart # 启动公告弹窗
-└── utils/constants.dart       # 常量、内置源与镜像配置
 ```
 
 ## 编译
@@ -120,6 +125,10 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.10 (20261104)
+- `zyz.txt` 解析兼容 `,` / `;`（含全角）分隔，支持一行写多个资源站，分隔符写错不再导致整行或整个文件解析失败
+- 剧情简介清洗 HTML：去除 `<img>` 等标签、解码 `&nbsp;` / `&amp;` 等实体，换行正常显示
 
 ### v1.0.9 (20261104)
 - 调整「设置」入口位置：从视频源管理页移至侧边栏，位于「视频源管理」上方
