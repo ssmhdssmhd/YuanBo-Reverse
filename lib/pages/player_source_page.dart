@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:yuanbo/pages/parse_api_page.dart';
+import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
@@ -13,6 +16,7 @@ class PlayerSourcePage extends StatefulWidget {
 
 class _PlayerSourcePageState extends State<PlayerSourcePage> {
   int _style = SettingsService.currentPlayerStyle;
+  int _parseCount = 0;
 
   @override
   void initState() {
@@ -22,7 +26,13 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
 
   Future<void> _load() async {
     final style = await SettingsService.getPlayerStyle();
-    if (mounted) setState(() => _style = style);
+    await ParseService.load();
+    if (mounted) {
+      setState(() {
+        _style = style;
+        _parseCount = ParseService.count;
+      });
+    }
   }
 
   Future<void> _select(int style) async {
@@ -38,6 +48,11 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
         backgroundColor: const Color(0xFF2A2648),
       ),
     );
+  }
+
+  Future<void> _openParsePage() async {
+    await Get.to(() => const ParseApiPage());
+    if (mounted) setState(() => _parseCount = ParseService.count);
   }
 
   void _showExternalTip() {
@@ -80,6 +95,59 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
                 icon: Icons.smart_display,
                 title: '播放器 2 · 哔哩哔哩风格',
                 subtitle: '自动横屏，粉色进度条，播放器内可「选集」与「倍速」',
+              ),
+              const SizedBox(height: 24),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(4, 0, 4, 10),
+                child: Text('视频解析',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+              ),
+              GlassCard(
+                onTap: _openParsePage,
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: GlassTheme.glassFill,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.code, color: Colors.white, size: 22),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('JSON 解析接口',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(
+                            'QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 播放页地址，自动调用解析接口取直链\n'
+                            '已配置 $_parseCount 个接口',
+                            style: const TextStyle(
+                                color: GlassTheme.textMuted,
+                                fontSize: 12,
+                                height: 1.5),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Icon(Icons.chevron_right,
+                        color: GlassTheme.textMuted, size: 22),
+                  ],
+                ),
               ),
               const SizedBox(height: 24),
               const Padding(

@@ -73,6 +73,38 @@ class AppConstants {
       '本软件为内测版本，仅限内测使用，专人维护。\n'
       '开发者：射手沫蝴蝶\n'
       '致敬朋友：梁哥';
+
+  /// JSON 解析接口配置文件（仓库 jiexi.json）
+  static const String parseConfigPath = 'jiexi.json';
+  static const String parseConfigRaw =
+      'https://raw.githubusercontent.com/$githubRepo/main/$parseConfigPath';
+
+  /// 解析配置加速地址（带时间戳避开 CDN 缓存）
+  static List<String> parseConfigUrls() {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    return [
+      'https://gh-proxy.com/$parseConfigRaw?t=$ts',
+      'https://ghproxy.net/$parseConfigRaw?t=$ts',
+      'https://gh.api.99988866.xyz/$parseConfigRaw?t=$ts',
+      'https://mirror.ghproxy.com/$parseConfigRaw?t=$ts',
+      '$parseConfigRaw?t=$ts',
+      'https://fastly.jsdelivr.net/gh/$githubRepo@main/$parseConfigPath?t=$ts',
+    ];
+  }
+
+  /// 直链媒体地址
+  static final RegExp mediaUrlPattern =
+      RegExp(r'\.(m3u8|mp4|flv|mkv|avi|ts)(\?|$)', caseSensitive: false);
+
+  /// 需要解析的平台网页（QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩）
+  static final RegExp platformPagePattern = RegExp(
+    r'^(?:https?:)?//(?:[^/]+\.)?(?:v\.qq\.com|iqiyi\.com|youku\.com|mgtv\.com|bilibili\.com|b23\.tv)/',
+    caseSensitive: false,
+  );
+
+  /// 是否为需要 JSON 解析的平台视频页
+  static bool isPlatformPage(String url) =>
+      !mediaUrlPattern.hasMatch(url) && platformPagePattern.hasMatch(url);
 }
 
 /// 视频源

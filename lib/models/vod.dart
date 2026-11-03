@@ -1,3 +1,5 @@
+import 'package:yuanbo/utils/constants.dart';
+
 /// 视频信息（MacCMS V10 vod 字段子集）
 class VodInfo {
   final int vodId;
@@ -83,9 +85,10 @@ class VodInfo {
         episodes: episodes,
       ));
     }
-    // 过滤掉网页播放页等无法直接播放的线路
+    // 过滤掉网页播放页等无法直接播放的线路；平台视频页（QQ / 爱奇艺等）保留，交给解析接口
     final playable = raw
-        .where((l) => l.episodes.any((e) => _playableUrl.hasMatch(e.url)))
+        .where((l) => l.episodes.any((e) =>
+            _playableUrl.hasMatch(e.url) || AppConstants.isPlatformPage(e.url)))
         .toList();
     return playable.isNotEmpty ? playable : raw;
   }

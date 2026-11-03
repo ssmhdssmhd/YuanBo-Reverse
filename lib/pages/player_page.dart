@@ -10,7 +10,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/pages/home_page.dart';
+import 'package:yuanbo/pages/parse_api_page.dart';
 import 'package:yuanbo/services/api_service.dart';
+import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
@@ -47,6 +49,8 @@ class _PlayerPageState extends State<PlayerPage> {
   String? _error;
   bool _switching = false;
   bool _fullscreen = false;
+  bool _parsing = false;
+  String _parseLog = '正在解析平台视频…';
 
   bool _controlsVisible = true;
   Timer? _hideTimer;
@@ -93,6 +97,7 @@ class _PlayerPageState extends State<PlayerPage> {
         _episode = ep;
         _ready = false;
         _error = null;
+        _parsing = false;
       });
     }
     _hideTimer?.cancel();
@@ -100,8 +105,38 @@ class _PlayerPageState extends State<PlayerPage> {
     _videoCtrl?.dispose();
     _videoCtrl = null;
 
+    var target = ep.url;
+    // QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 等平台播放页先走 JSON 解析
+    if (ParseService.needsParse(target)) {
+      if (mounted) {
+        setState(() {
+          _parsing = true;
+          _parseLog = '检测到平台视频，正在解析…';
+        });
+      }
+      final resolved = await ParseService.resolve(
+        target,
+        onLog: (msg) {
+          if (mounted) setState(() => _parseLog = msg);
+        },
+      );
+      if (!mounted) return;
+      if (resolved == null) {
+        setState(() {
+          _parsing = false;
+          _error = ParseService.count == 0
+              ? '该视频来自平台播放页，需要配置 JSON 解析接口后才能播放。\n'
+                  '路径：播放器源 → 视频解析 → JSON 解析接口'
+              : '平台视频解析失败，请检查解析接口是否可用，或换一个接口再试。';
+        });
+        return;
+      }
+      target = resolved;
+      if (mounted) setState(() => _parsing = false);
+    }
+
     try {
-      final ctrl = VideoPlayerController.networkUrl(Uri.parse(ep.url));
+      final ctrl = VideoPlayerController.networkUrl(Uri.parse(target));
       await ctrl.initialize();
       if (!mounted) {
         ctrl.dispose();
@@ -539,8 +574,27 @@ class _PlayerPageState extends State<PlayerPage> {
                 ],
               )
             : !_ready
-                ? const Center(
-                    child: CircularProgressIndicator(color: GlassTheme.accent),
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(
+                            color: GlassTheme.accent),
+                        if (_parsing) ...[
+                          const SizedBox(height: 14),
+                          Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              _parseLog,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  color: Colors.white54, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   )
                 : _buildPlayer(),
       ),
@@ -573,6 +627,12 @@ class _PlayerPageState extends State<PlayerPage> {
               onPressed: _openExternal,
               icon: const Icon(Icons.open_in_new, color: GlassTheme.accent),
               label: const Text('用外部播放器打开',
+                  style: TextStyle(color: GlassTheme.accent)),
+            ),
+            TextButton.icon(
+              onPressed: () => Get.to(() => const ParseApiPage()),
+              icon: const Icon(Icons.code, color: GlassTheme.accent),
+              label: const Text('JSON 解析接口',
                   style: TextStyle(color: GlassTheme.accent)),
             ),
           ],

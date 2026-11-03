@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.11 |
+| 当前版本 | v1.0.12 |
 | 构建时间 | 2026-11-04 |
 | 技术栈 | Flutter + GetX + video_player + Dio |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -24,6 +24,7 @@
 - PotPlayer 风格内置播放器，支持调用本机外部播放器（PotPlayer 等）打开当前剧集
 - 设置中心：可选「播放器 1 · 简洁版」或「播放器 2 · 哔哩哔哩风格」（横屏、播放器内选集 / 倍速 / 下一集）
 - 应用内更新：自动检测 GitHub Release，国内镜像加速下载 APK
+- JSON 解析：QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 播放页自动走解析接口取直链播放
 
 ## 视频源
 
@@ -70,6 +71,29 @@
 - 启动时通过 jsDelivr / gh-proxy 等镜像读取，读取失败时使用内置默认公告
 - 同一版本只在首次启动时弹窗一次，升级版本后重新弹出
 
+## JSON 解析接口
+
+平台视频（QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩）的播放页不是直链，播放器会先调用解析接口换取 m3u8 / mp4 地址。
+
+配置入口：侧边栏「播放器源」→「视频解析」→「JSON 解析接口」，可手动添加、左滑删除，也可从仓库 [jiexi.json](jiexi.json) 同步。
+
+`jiexi.json` 格式：
+
+```json
+{
+  "timeout": 10,
+  "apis": [
+    {"name": "解析接口 A", "url": "https://api.example.com/?url={url}"},
+    {"name": "解析接口 B", "url": "https://api.example.com/parse?url={url}"}
+  ]
+}
+```
+
+- `{url}` 为占位符，会被替换为编码后的平台播放页地址；不写占位符时直接拼在接口末尾
+- 接口返回 JSON / 文本均可，App 会自动识别 `url`、`playurl`、`data.url`、`m3u8` 等字段
+- 多个接口按顺序尝试，第一个成功返回直链的生效；解析失败时播放页可直接进入接口配置
+- 本地添加的接口与仓库同步结果取并集，仓库删除不会影响本地已添加项
+
 ## 项目结构
 
 ```
@@ -82,6 +106,7 @@ lib/
 │   ├── source_service.dart    # 视频源持久化 + 仓库 zyz.txt 同步
 │   ├── announcement_service.dart # 公告缓存 + 仓库 sygg.txt 同步
 │   ├── settings_service.dart  # 应用设置（播放器样式）
+│   ├── parse_service.dart     # JSON 解析接口（本地 / jiexi.json 同步 / 平台解析）
 │   └── update_service.dart    # 检查更新 + 镜像下载 APK
 ├── pages/
 │   ├── splash_page.dart       # 启动页（版本首次启动弹出公告）
@@ -90,7 +115,8 @@ lib/
 │   ├── player_page.dart       # 播放器（简洁版 / 哔哩哔哩风格）
 │   ├── source_page.dart       # 视频源管理（添加 / 左滑删除 / 同步）
 │   ├── settings_page.dart     # 设置页（播放器选择）
-│   ├── player_source_page.dart # 播放器源（内置播放器 / 外部播放器说明）
+│   ├── player_source_page.dart # 播放器源（内置播放器 / JSON 解析 / 外部播放器）
+│   ├── parse_api_page.dart    # JSON 解析接口管理
 │   └── update_page.dart       # 检查更新
 ├── utils/
 │   ├── constants.dart         # 常量 / 视频源解析
@@ -126,6 +152,13 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.12 (20261104)
+- 「播放器源」新增「视频解析 → JSON 解析接口」：支持手动添加 / 左滑删除接口，也可从仓库 `jiexi.json` 同步
+- 播放器自动识别 QQ、爱奇艺、优酷、芒果TV、哔哩哔哩 播放页地址，依次调用已配置解析接口，取到 m3u8 / mp4 直链后播放
+- 解析过程显示实时状态（正在使用哪个接口、成功 / 失败），失败时可在播放页直接进入「JSON 解析接口」配置
+- 解析接口支持 `{url}` 占位符（如 `https://api.example.com/?url={url}`），不写占位符时自动拼接编码后的地址
+- 详情页线路不再过滤平台播放页，交给解析；接口结果做会话缓存，重复打开同一集不重复请求
 
 ### v1.0.11 (20261104)
 - 修复仓库 `zyz.txt` 同步不到 / 只同步到旧内容：镜像顺序改为代理与直连优先，jsDelivr 最后兜底，避免命中旧缓存
