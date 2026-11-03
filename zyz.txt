@@ -2,5 +2,5 @@
 # 格式：资源站名称|接口地址，每行一个；名称与地址之间也可用 , 或 ; 分隔
 # 支持一行多个资源站：名称|地址;名称|地址
 # App 会自动从本仓库同步该文件，用户无需手动添加
-西瓜资源|https://caiji.xgzyapi.com/api.php/provide/vod/
+西瓜资源|https://caiji.xgzyapi.com/api.php/provide/vod/;
 天堂资源|https://caiji.dyttzyapi.com/api.php/provide/vod/
