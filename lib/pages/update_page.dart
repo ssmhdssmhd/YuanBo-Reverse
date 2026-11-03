@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:yuanbo/models/update_info.dart';
+import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/services/update_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
@@ -21,6 +23,7 @@ class _UpdatePageState extends State<UpdatePage> {
   bool _downloading = false;
   double _progress = 0;
   String? _error;
+  int? _sourceCount;
 
   @override
   void initState() {
@@ -34,9 +37,13 @@ class _UpdatePageState extends State<UpdatePage> {
       _currentVersion = pkg.version;
     } catch (_) {}
     final info = await _service.checkUpdate();
+    // 检查更新时同步仓库视频源，用户无需手动维护
+    final c = Get.isRegistered<HomeController>() ? Get.find<HomeController>() : null;
+    final sourceCount = await c?.syncSources();
     if (mounted) {
       setState(() {
         _info = info;
+        _sourceCount = sourceCount;
         _checking = false;
       });
     }
@@ -96,6 +103,24 @@ class _UpdatePageState extends State<UpdatePage> {
                                     color: Colors.white,
                                     fontSize: 22,
                                     fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.cloud_done,
+                                    color: GlassTheme.accent, size: 14),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    _sourceCount == null
+                                        ? '视频源随仓库 zyz.txt 自动同步'
+                                        : '视频源已同步：$_sourceCount 个（随仓库自动更新）',
+                                    style: const TextStyle(
+                                        color: GlassTheme.textMuted,
+                                        fontSize: 11),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -192,7 +217,7 @@ class _UpdatePageState extends State<UpdatePage> {
                       ],
                       const Spacer(),
                       const Text(
-                        '提示：下载使用 GitHub 国内镜像加速，若失败将自动直连。',
+                        '提示：下载使用 GitHub 国内镜像加速，若失败将自动直连。\n视频源随仓库 zyz.txt 自动更新，无需手动添加。',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color: GlassTheme.textMuted, fontSize: 12),

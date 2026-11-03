@@ -38,22 +38,19 @@ jobs:
         run: dart run flutter_launcher_icons
 
       - name: Build release APK
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release
 
       - name: Rename APK with version
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | head -1 | sed 's/version: //' | sed 's/+.*//')
           BUILD_DATE=$(date +%Y%m%d%H%M)
-          for f in build/app/outputs/flutter-apk/app-*-release.apk; do
-            abi=$(echo "$f" | sed 's/.*app-\(.*\)-release.apk/\1/')
-            mv "$f" "build/app/outputs/flutter-apk/沫兮源播.${VERSION}_${abi}_${BUILD_DATE}.apk"
-          done
+          mv build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/沫兮源播.${VERSION} ${BUILD_DATE}.apk"
           ls -la build/app/outputs/flutter-apk/
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 沫兮源播-APK
+          name: 沫兮源播APK
           path: build/app/outputs/flutter-apk/*.apk
 
       - name: Create GitHub Release

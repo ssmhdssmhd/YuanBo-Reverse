@@ -3,29 +3,22 @@ class AppConstants {
   static const String appName = '沫兮源播';
   static const String packageName = 'com.moxi.yuanbo';
 
-  /// 视频源（MacCMS V10 协议，从原 APK 逆向得到）
+  /// 仓库中的视频源配置文件（App 自动同步，用户无需手动维护）
+  static const String sourceConfigPath = 'zyz.txt';
+
+  /// 内置兜底视频源（MacCMS V10 协议）
   static const List<VideoSource> defaultSources = [
     VideoSource(
-      name: '速度资源',
-      api: 'https://sdzyapi.com/api.php/provide/vod/',
-    ),
-    VideoSource(
-      name: '天空资源',
-      api: 'https://api.tiankongapi.com/api.php/provide/vod/',
-    ),
-    VideoSource(
-      name: '卧龙资源',
-      api: 'https://collect.wolongzyw.com/api.php/provide/vod/',
-    ),
-    VideoSource(
-      name: '百度资源',
-      api: 'https://api.apibdzy.com/api.php/provide/vod/',
+      name: '西瓜资源',
+      api: 'https://caiji.xgzyapi.com/api.php/provide/vod/',
     ),
   ];
 
-  /// GitHub 仓库（用于更新检查与 APK 下载）
+  /// GitHub 仓库（用于更新检查与资源同步）
   static const String githubRepo = 'ssmhdssmhd/YuanBo-Reverse';
   static const String githubApi = 'https://api.github.com/repos/$githubRepo/releases/latest';
+  static const String githubRaw =
+      'https://raw.githubusercontent.com/$githubRepo/main/$sourceConfigPath';
 
   /// GitHub 国内镜像加速（用于下载 APK）
   static const List<String> githubMirrors = [
@@ -33,6 +26,15 @@ class AppConstants {
     'https://mirror.ghproxy.com/',
     'https://gh.api.99988866.xyz/',
     'https://ghproxy.net/',
+  ];
+
+  /// 视频源配置的加速地址（依次尝试，最后直连）
+  static const List<String> sourceConfigUrls = [
+    'https://fastly.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath',
+    'https://cdn.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath',
+    'https://gh-proxy.com/$githubRaw',
+    'https://ghproxy.net/$githubRaw',
+    githubRaw,
   ];
 }
 
@@ -44,9 +46,28 @@ class VideoSource {
   const VideoSource({required this.name, required this.api});
 
   factory VideoSource.fromJson(Map<String, dynamic> json) => VideoSource(
-        name: json['name'] as String,
-        api: json['api'] as String,
+        name: json['name']?.toString() ?? '',
+        api: json['api']?.toString() ?? '',
       );
 
+  /// 解析 zyz.txt 中的一行：`名称|接口地址`
+  static VideoSource? fromLine(String raw) {
+    final line = raw.trim();
+    if (line.isEmpty || line.startsWith('#')) return null;
+    final idx = line.indexOf('|');
+    if (idx <= 0) return null;
+    final name = line.substring(0, idx).trim();
+    final api = line.substring(idx + 1).trim();
+    if (name.isEmpty || !api.startsWith('http')) return null;
+    return VideoSource(name: name, api: api);
+  }
+
   Map<String, dynamic> toJson() => {'name': name, 'api': api};
+
+  @override
+  bool operator ==(Object other) =>
+      other is VideoSource && other.name == name && other.api == api;
+
+  @override
+  int get hashCode => Object.hash(name, api);
 }

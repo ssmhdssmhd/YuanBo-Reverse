@@ -224,7 +224,8 @@ class _DetailPageState extends State<DetailPage> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: line.episodes.map((ep) {
+                children: line.episodes.asMap().entries.map((entry) {
+                  final ep = entry.value;
                   return ActionChip(
                     label: Text(ep.name),
                     backgroundColor: GlassTheme.glassFill,
@@ -235,7 +236,11 @@ class _DetailPageState extends State<DetailPage> {
                       side: const BorderSide(color: GlassTheme.glassBorder),
                     ),
                     onPressed: ep.url.isNotEmpty
-                        ? () => Get.to(() => PlayerPage(episode: ep))
+                        ? () => Get.to(() => PlayerPage(
+                              episode: ep,
+                              vodName: vod.vodName,
+                              episodeIndex: entry.key,
+                            ))
                         : null,
                   );
                 }).toList(),

@@ -6,13 +6,14 @@ import 'package:yuanbo/pages/detail_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/pages/update_page.dart';
 import 'package:yuanbo/services/api_service.dart';
+import 'package:yuanbo/services/source_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
 
 class HomeController extends GetxController {
   final api = ApiService();
-  final sources = <VideoSource>[...AppConstants.defaultSources].obs;
+  final sources = <VideoSource>[].obs;
   final currentSource = AppConstants.defaultSources.first.obs;
   final classes = <VdClass>[].obs;
   final vodList = <VodInfo>[].obs;
@@ -21,13 +22,24 @@ class HomeController extends GetxController {
   final page = 1.obs;
   final hasMore = true.obs;
   final searchKey = ''.obs;
+  final syncing = false.obs;
+  final lastSync = ''.obs;
 
   @override
   void onInit() {
     super.onInit();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final list = await SourceService.initial();
+    sources.assignAll(list.isEmpty ? AppConstants.defaultSources : list);
+    currentSource.value = sources.first;
     api.setSource(currentSource.value);
-    loadClasses();
-    loadMore();
+    await loadClasses();
+    await loadMore();
+    // 启动后静默同步仓库配置，用户无需手动维护
+    syncSources();
   }
 
   void switchSource(VideoSource s) {
@@ -39,6 +51,59 @@ class HomeController extends GetxController {
     vodList.clear();
     loadClasses();
     loadMore();
+  }
+
+  /// 添加自定义资源站
+  Future<bool> addSource(VideoSource s) async {
+    if (sources.any((e) => e.api == s.api)) return false;
+    sources.add(s);
+    await SourceService.saveLocal(sources);
+    return true;
+  }
+
+  /// 删除资源站（至少保留一个）
+  Future<bool> removeSource(VideoSource s) async {
+    if (sources.length <= 1) return false;
+    final wasCurrent = currentSource.value.api == s.api;
+    sources.removeWhere((e) => e.api == s.api);
+    await SourceService.saveLocal(sources);
+    if (wasCurrent) switchSource(sources.first);
+    return true;
+  }
+
+  /// 从仓库 zyz.txt 同步资源
+  /// 返回同步后的源数量，失败返回 null
+  Future<int?> syncSources() async {
+    if (syncing.value) return null;
+    syncing.value = true;
+    try {
+      final remote = await SourceService.sync();
+      if (remote == null || remote.isEmpty) return null;
+      final changed = sources.length != remote.length ||
+          sources.any((s) => !remote.contains(s));
+      sources.assignAll(remote);
+      lastSync.value = _nowText();
+      if (changed && !sources.any((e) => e.api == currentSource.value.api)) {
+        currentSource.value = sources.first;
+        api.setSource(currentSource.value);
+        currentType.value = 0;
+        page.value = 1;
+        hasMore.value = true;
+        vodList.clear();
+        await loadClasses();
+        await loadMore();
+      }
+      return remote.length;
+    } finally {
+      syncing.value = false;
+    }
+  }
+
+  String _nowText() {
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${now.year}-${two(now.month)}-${two(now.day)} '
+        '${two(now.hour)}:${two(now.minute)}';
   }
 
   Future<void> loadClasses() async {
