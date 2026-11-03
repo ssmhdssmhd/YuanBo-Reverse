@@ -92,6 +92,23 @@ class AppConstants {
     ];
   }
 
+  /// 版本更新公告文件（gxgg.txt，每次版本发布时更新）
+  static const String updateNoticePath = 'gxgg.txt';
+  static const String updateNoticeRaw =
+      'https://raw.githubusercontent.com/$githubRepo/main/$updateNoticePath';
+
+  static List<String> updateNoticeUrls() {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    return [
+      'https://gh-proxy.com/$updateNoticeRaw?t=$ts',
+      'https://ghproxy.net/$updateNoticeRaw?t=$ts',
+      'https://gh.api.99988866.xyz/$updateNoticeRaw?t=$ts',
+      'https://mirror.ghproxy.com/$updateNoticeRaw?t=$ts',
+      '$updateNoticeRaw?t=$ts',
+      'https://fastly.jsdelivr.net/gh/$githubRepo@main/$updateNoticePath?t=$ts',
+    ];
+  }
+
   /// 直链媒体地址
   static final RegExp mediaUrlPattern =
       RegExp(r'\.(m3u8|mp4|flv|mkv|avi|ts)(\?|$)', caseSensitive: false);

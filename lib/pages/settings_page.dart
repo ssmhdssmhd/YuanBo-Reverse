@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
 
-/// 设置页：播放器样式选择
+/// 设置页：播放器样式选择 / 搜索入口开关
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -13,6 +15,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   int _style = SettingsService.playerSimple;
+  bool _showSearch = true;
 
   @override
   void initState() {
@@ -22,7 +25,21 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _load() async {
     final style = await SettingsService.getPlayerStyle();
-    if (mounted) setState(() => _style = style);
+    final showSearch = await SettingsService.getShowSearch();
+    if (mounted) {
+      setState(() {
+        _style = style;
+        _showSearch = showSearch;
+      });
+    }
+  }
+
+  Future<void> _toggleSearch(bool value) async {
+    setState(() => _showSearch = value);
+    await SettingsService.setShowSearch(value);
+    if (Get.isRegistered<HomeController>()) {
+      Get.find<HomeController>().showSearch.value = value;
+    }
   }
 
   Future<void> _select(int style) async {
@@ -76,6 +93,31 @@ class _SettingsPageState extends State<SettingsPage> {
                 padding: EdgeInsets.symmetric(horizontal: 4),
                 child: Text('切换后再次打开剧集生效',
                     style: TextStyle(color: GlassTheme.textMuted, fontSize: 11)),
+              ),
+              const SizedBox(height: 24),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(4, 0, 4, 10),
+                child: Text('首页',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+              ),
+              GlassCard(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                child: SwitchListTile(
+                  value: _showSearch,
+                  onChanged: _toggleSearch,
+                  secondary:
+                      const Icon(Icons.search, color: GlassTheme.accent),
+                  title: const Text('显示搜索入口',
+                      style: TextStyle(color: Colors.white, fontSize: 15)),
+                  subtitle: const Text(
+                    '开启后首页右上角显示搜索按钮，可同时搜索全部资源站',
+                    style: TextStyle(
+                        color: GlassTheme.textMuted, fontSize: 12, height: 1.5),
+                  ),
+                ),
               ),
             ],
           ),

@@ -4,10 +4,12 @@ import 'package:share_plus/share_plus.dart';
 import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/pages/detail_page.dart';
 import 'package:yuanbo/pages/player_source_page.dart';
+import 'package:yuanbo/pages/search_page.dart';
 import 'package:yuanbo/pages/settings_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/pages/update_page.dart';
 import 'package:yuanbo/services/api_service.dart';
+import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/source_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
@@ -27,6 +29,9 @@ class HomeController extends GetxController {
   final syncing = false.obs;
   final lastSync = ''.obs;
 
+  /// 首页搜索入口显示开关（设置项，默认开启）
+  final showSearch = true.obs;
+
   @override
   void onInit() {
     super.onInit();
@@ -34,6 +39,7 @@ class HomeController extends GetxController {
   }
 
   Future<void> _bootstrap() async {
+    showSearch.value = await SettingsService.getShowSearch();
     final list = await SourceService.initial();
     sources.assignAll(list.isEmpty ? AppConstants.defaultSources : list);
     currentSource.value = sources.first;
@@ -193,6 +199,14 @@ class HomePage extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          Obx(() => c.showSearch.value
+              ? IconButton(
+                  tooltip: '搜索全部资源站',
+                  icon: const Icon(Icons.search, color: Colors.white, size: 22),
+                  onPressed: () => Get.to(() => const SearchPage()),
+                )
+              : const SizedBox.shrink()),
+          const SizedBox(width: 4),
           Obx(() => GestureDetector(
                 onTap: () => _showSourcePicker(context, c),
                 child: GlassContainer(

@@ -148,10 +148,11 @@ class _PlayerPageState extends State<PlayerPage> {
         setState(() {
           _parsing = false;
           _error = ParseService.count == 0
-              ? '该视频来自平台播放页，需要配置 JSON 解析接口后才能播放。\n'
-                  '路径：播放器源 → 视频解析 → JSON 解析接口'
-              : '平台视频解析失败，请检查解析接口是否可用，或换一个接口再试。';
+              ? '该视频来自平台播放页，尚未配置 JSON 解析接口，已尝试用网页播放打开。\n'
+                  '也可在「播放器源 → 视频解析」添加解析接口。'
+              : '平台视频解析失败，已尝试用网页播放打开；也可检查解析接口或更换资源站。';
         });
+        await _openWebPlay(target, auto: true);
         return;
       }
       target = resolved;
@@ -420,6 +421,24 @@ class _PlayerPageState extends State<PlayerPage> {
       }
     }
     if (mounted) _toast('未找到可用的外部播放器，建议安装 PotPlayer');
+  }
+
+  /// 网页播放：在浏览器中打开「接口地址 + 播放页地址」
+  Future<void> _openWebPlay(String videoUrl, {bool auto = false}) async {
+    final base = (await SettingsService.getWebPlayUrl()).trim();
+    if (base.isEmpty) return;
+    final encoded = Uri.encodeComponent(videoUrl);
+    final target = base.contains('{url}')
+        ? base.replaceAll('{url}', encoded)
+        : '$base$encoded';
+    final uri = Uri.tryParse(target);
+    if (uri == null) return;
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && !auto) _toast('未找到可用的浏览器');
+    } catch (_) {
+      if (!auto) _toast('网页播放打开失败');
+    }
   }
 
   /// 切换资源站：按片名在其他源重新搜索并续播当前集
@@ -885,6 +904,16 @@ class _PlayerPageState extends State<PlayerPage> {
               onPressed: _switching ? null : _switchSource,
               icon: const Icon(Icons.swap_horiz, color: GlassTheme.accent),
               label: const Text('切换资源站',
+                  style: TextStyle(color: GlassTheme.accent)),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                final ep = _episode;
+                if (ep == null) return;
+                _openWebPlay(ep.url);
+              },
+              icon: const Icon(Icons.language, color: GlassTheme.accent),
+              label: const Text('网页播放',
                   style: TextStyle(color: GlassTheme.accent)),
             ),
             TextButton.icon(

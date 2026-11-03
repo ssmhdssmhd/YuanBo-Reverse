@@ -17,6 +17,7 @@ class PlayerSourcePage extends StatefulWidget {
 class _PlayerSourcePageState extends State<PlayerSourcePage> {
   int _style = SettingsService.currentPlayerStyle;
   int _parseCount = 0;
+  String _webPlay = SettingsService.defaultWebPlayUrl;
 
   @override
   void initState() {
@@ -26,13 +27,86 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
 
   Future<void> _load() async {
     final style = await SettingsService.getPlayerStyle();
+    final webPlay = await SettingsService.getWebPlayUrl();
     await ParseService.load();
     if (mounted) {
       setState(() {
         _style = style;
+        _webPlay = webPlay;
         _parseCount = ParseService.count;
       });
     }
+  }
+
+  Future<void> _editWebPlay() async {
+    final ctrl = TextEditingController(text: _webPlay);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1B3A),
+        title: const Text('网页播放接口',
+            style: TextStyle(color: Colors.white, fontSize: 17)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: ctrl,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: InputDecoration(
+                hintText: SettingsService.defaultWebPlayUrl,
+                hintStyle: const TextStyle(
+                    color: GlassTheme.textMuted, fontSize: 12),
+                filled: true,
+                fillColor: GlassTheme.glassFill,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: GlassTheme.glassBorder),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '支持 {url} 占位符；不写占位符时自动在末尾拼接播放页地址。\n'
+              'JSON 解析失败时自动用浏览器打开。',
+              style: TextStyle(
+                  color: GlassTheme.textMuted, fontSize: 11, height: 1.5),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.of(ctx).pop(SettingsService.defaultWebPlayUrl),
+            child: const Text('恢复默认'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (result == null) {
+      Future.delayed(const Duration(milliseconds: 400), ctrl.dispose);
+      return;
+    }
+    await SettingsService.setWebPlayUrl(result);
+    final saved = await SettingsService.getWebPlayUrl();
+    Future.delayed(const Duration(milliseconds: 400), ctrl.dispose);
+    if (!mounted) return;
+    setState(() => _webPlay = saved);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已保存网页播放接口：$saved'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF2A2648),
+      ),
+    );
   }
 
   Future<void> _select(int style) async {
@@ -146,6 +220,60 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
                     const SizedBox(width: 10),
                     const Icon(Icons.chevron_right,
                         color: GlassTheme.textMuted, size: 22),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(4, 0, 4, 10),
+                child: Text('网页播放',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+              ),
+              GlassCard(
+                onTap: _editWebPlay,
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: GlassTheme.glassFill,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      alignment: Alignment.center,
+                      child:
+                          const Icon(Icons.language, color: Colors.white, size: 22),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('网页播放接口',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(
+                            '当前：$_webPlay\n'
+                            'JSON 解析失败时自动用浏览器打开该接口并拼接播放页地址',
+                            style: const TextStyle(
+                                color: GlassTheme.textMuted,
+                                fontSize: 12,
+                                height: 1.5),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Icon(Icons.edit_outlined,
+                        color: GlassTheme.textMuted, size: 20),
                   ],
                 ),
               ),

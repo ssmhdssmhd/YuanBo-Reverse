@@ -5,9 +5,11 @@ import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/services/announcement_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
+import 'package:yuanbo/services/update_notice_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 import 'package:yuanbo/widgets/announcement_dialog.dart';
+import 'package:yuanbo/widgets/update_notice_dialog.dart';
 
 /// 启动页
 class SplashPage extends StatefulWidget {
@@ -34,18 +36,37 @@ class _SplashPageState extends State<SplashPage>
 
   Future<void> _init() async {
     await SettingsService.getPlayerStyle();
+    await SettingsService.getShowSearch();
     var version = '';
     try {
       final pkg = await PackageInfo.fromPlatform();
       version = pkg.version;
       setState(() => _version = version);
     } catch (_) {}
-    final announcement = await AnnouncementService.load();
+    final texts = await Future.wait<String>([
+      UpdateNoticeService.load()
+          .timeout(const Duration(seconds: 8), onTimeout: () => ''),
+      AnnouncementService.load()
+          .timeout(const Duration(seconds: 8), onTimeout: () => ''),
+    ]);
+    final updateNotice = texts[0];
+    final announcement = texts[1];
+    final showUpdateNotice = await UpdateNoticeService.shouldShow(version);
     final showAnnouncement =
         version.isNotEmpty && await AnnouncementService.shouldShow(version);
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
     Get.off(() => const HomePage());
+    if (showUpdateNotice && updateNotice.isNotEmpty) {
+      await UpdateNoticeService.markShown(version);
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (Get.context != null) {
+        await Get.dialog(
+          UpdateNoticeDialog(content: updateNotice),
+          barrierDismissible: false,
+        );
+      }
+    }
     if (showAnnouncement) {
       await AnnouncementService.markShown(version);
       await Future.delayed(const Duration(milliseconds: 300));
