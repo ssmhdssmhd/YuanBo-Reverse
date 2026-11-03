@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
+import 'package:android_intent_plus/android_intent.dart';
+import 'package:android_intent_plus/flag.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/pages/home_page.dart';
@@ -191,6 +195,38 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// 调用本机外部播放器（PotPlayer / MX 等）打开当前播放地址
+  Future<void> _openExternal() async {
+    final ep = _episode;
+    if (ep == null || ep.url.isEmpty) {
+      _toast('播放地址无效');
+      return;
+    }
+    if (!Platform.isAndroid) {
+      final ok = await launchUrl(
+        Uri.parse(ep.url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!ok) _toast('未找到可用的外部播放器');
+      return;
+    }
+    // m3u8 的 MIME 并非 video/*，依次尝试两种类型以兼容各播放器
+    for (final type in const ['video/*', '*/*']) {
+      try {
+        await AndroidIntent(
+          action: 'action_view',
+          data: ep.url,
+          type: type,
+          flags: <int>[Flag.FLAG_ACTIVITY_NEW_TASK],
+        ).launch();
+        return;
+      } catch (_) {
+        // 尝试下一个 MIME 类型
+      }
+    }
+    if (mounted) _toast('未找到可用的外部播放器，建议安装 PotPlayer');
+  }
+
   /// 切换资源站：按片名在其他源重新搜索并续播当前集
   Future<void> _switchSource() async {
     final c = Get.isRegistered<HomeController>() ? Get.find<HomeController>() : null;
@@ -331,6 +367,11 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
                 actions: [
                   IconButton(
+                    tooltip: '外部播放器',
+                    onPressed: _openExternal,
+                    icon: const Icon(Icons.open_in_new),
+                  ),
+                  IconButton(
                     tooltip: '换源',
                     onPressed: _switching ? null : _switchSource,
                     icon: _switching
@@ -375,6 +416,12 @@ class _PlayerPageState extends State<PlayerPage> {
               onPressed: _switching ? null : _switchSource,
               icon: const Icon(Icons.swap_horiz, color: GlassTheme.accent),
               label: const Text('切换资源站',
+                  style: TextStyle(color: GlassTheme.accent)),
+            ),
+            TextButton.icon(
+              onPressed: _openExternal,
+              icon: const Icon(Icons.open_in_new, color: GlassTheme.accent),
+              label: const Text('用外部播放器打开',
                   style: TextStyle(color: GlassTheme.accent)),
             ),
           ],
@@ -439,107 +486,114 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// PotPlayer 风格底部控制条（极简黑色）
   Widget _buildControls(
       VideoPlayerController ctrl, double positionMs, double maxMs) {
     final playing = ctrl.value.isPlaying;
+    final barColor = const Color(0xE6111118);
+    final blue = const Color(0xFF3FA9FF);
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.black54, Colors.transparent, Colors.black87],
-          stops: [0.0, 0.45, 1.0],
+          colors: [Colors.transparent, Colors.transparent, Color(0xB3000000)],
+          stops: [0.0, 0.6, 1.0],
         ),
       ),
       child: SafeArea(
         child: Column(
           children: [
             if (_fullscreen)
-              Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: _toggleFullscreen,
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(_episode?.name ?? '',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14)),
-                        if (_sourceName.isNotEmpty)
-                          Text(_sourceName,
-                              style: const TextStyle(
-                                  color: GlassTheme.accent, fontSize: 11)),
-                      ],
+              Container(
+                color: const Color(0x66000000),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down,
+                          color: Colors.white),
+                      onPressed: _toggleFullscreen,
                     ),
-                  ),
-                  IconButton(
-                    tooltip: '换源',
-                    onPressed: _switching ? null : _switchSource,
-                    icon: const Icon(Icons.swap_horiz, color: Colors.white),
-                  ),
-                ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_episode?.name ?? '',
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 14)),
+                          if (_sourceName.isNotEmpty)
+                            Text(_sourceName,
+                                style: const TextStyle(
+                                    color: GlassTheme.accent, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '外部播放器',
+                      onPressed: _openExternal,
+                      icon: const Icon(Icons.open_in_new, color: Colors.white),
+                    ),
+                    IconButton(
+                      tooltip: '换源',
+                      onPressed: _switching ? null : _switchSource,
+                      icon: const Icon(Icons.swap_horiz, color: Colors.white),
+                    ),
+                  ],
+                ),
               ),
             const Spacer(),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _circleButton(Icons.replay_10, () => _seekBy(
-                    const Duration(seconds: -10))),
-                const SizedBox(width: 28),
-                _playButton(playing),
-                const SizedBox(width: 28),
-                _circleButton(Icons.forward_10, () => _seekBy(
-                    const Duration(seconds: 10))),
-              ],
-            ),
-            const Spacer(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 8, 8),
+            Container(
+              margin: EdgeInsets.fromLTRB(
+                  _fullscreen ? 28 : 8, 0, _fullscreen ? 28 : 8, 8),
+              padding: const EdgeInsets.fromLTRB(8, 2, 6, 2),
+              decoration: BoxDecoration(
+                color: barColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white12),
+              ),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Text(_fmt(Duration(milliseconds: positionMs.toInt())),
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 11)),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 3,
-                            activeTrackColor: GlassTheme.primary,
-                            inactiveTrackColor: Colors.white24,
-                            thumbColor: GlassTheme.accent,
-                            thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 6),
-                            overlayShape: const RoundSliderOverlayShape(
-                                overlayRadius: 12),
-                          ),
-                          child: Slider(
-                            min: 0,
-                            max: maxMs,
-                            value: positionMs.clamp(0.0, maxMs).toDouble(),
-                            onChanged: (v) => setState(() => _dragValue = v),
-                            onChangeEnd: (v) {
-                              ctrl.seekTo(Duration(milliseconds: v.toInt()));
-                              setState(() => _dragValue = null);
-                              _scheduleHide();
-                            },
-                          ),
-                        ),
-                      ),
-                      Text(_fmt(ctrl.value.duration),
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 11)),
-                    ],
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2,
+                      activeTrackColor: blue,
+                      inactiveTrackColor: Colors.white24,
+                      thumbColor: blue,
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 5),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 10),
+                    ),
+                    child: Slider(
+                      min: 0,
+                      max: maxMs,
+                      value: positionMs.clamp(0.0, maxMs).toDouble(),
+                      onChanged: (v) => setState(() => _dragValue = v),
+                      onChangeStart: (_) => _hideTimer?.cancel(),
+                      onChangeEnd: (v) {
+                        ctrl.seekTo(Duration(milliseconds: v.toInt()));
+                        setState(() => _dragValue = null);
+                        _scheduleHide();
+                      },
+                    ),
                   ),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
+                      _barIcon(playing ? Icons.pause : Icons.play_arrow,
+                          _togglePlay,
+                          size: 24),
+                      const SizedBox(width: 2),
+                      Text(
+                        '${_fmt(Duration(milliseconds: positionMs.toInt()))} / ${_fmt(ctrl.value.duration)}',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 11),
+                      ),
+                      const Spacer(),
                       PopupMenuButton<double>(
                         initialValue: _speed,
+                        tooltip: '倍速',
                         color: const Color(0xFF1E1B3A),
                         onSelected: (v) async {
                           await ctrl.setPlaybackSpeed(v);
@@ -550,25 +604,24 @@ class _PlayerPageState extends State<PlayerPage> {
                             .map((s) => PopupMenuItem<double>(
                                   value: s,
                                   child: Text('${s}x',
-                                      style:
-                                          const TextStyle(color: Colors.white)),
+                                      style: const TextStyle(
+                                          color: Colors.white)),
                                 ))
                             .toList(),
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 8),
                           child: Text('${_speed}x',
                               style: const TextStyle(
-                                  color: Colors.white, fontSize: 12)),
+                                  color: Colors.white70, fontSize: 11)),
                         ),
                       ),
-                      IconButton(
-                        onPressed: _toggleFullscreen,
-                        icon: Icon(
-                          _fullscreen
-                              ? Icons.fullscreen_exit
-                              : Icons.fullscreen,
-                          color: Colors.white,
-                        ),
+                      _barIcon(Icons.open_in_new, _openExternal),
+                      _barIcon(
+                        _fullscreen
+                            ? Icons.fullscreen_exit
+                            : Icons.fullscreen,
+                        _toggleFullscreen,
                       ),
                     ],
                   ),
@@ -581,28 +634,14 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget _playButton(bool playing) {
-    return InkWell(
-      onTap: _togglePlay,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 58,
-        height: 58,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.14),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Icon(playing ? Icons.pause : Icons.play_arrow,
-            color: Colors.white, size: 34),
+  Widget _barIcon(IconData icon, VoidCallback onTap, {double size = 19}) {
+    return InkResponse(
+      onTap: onTap,
+      radius: 18,
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Icon(icon, color: Colors.white, size: size),
       ),
-    );
-  }
-
-  Widget _circleButton(IconData icon, VoidCallback onTap) {
-    return IconButton(
-      onPressed: onTap,
-      icon: Icon(icon, color: Colors.white, size: 26),
     );
   }
 

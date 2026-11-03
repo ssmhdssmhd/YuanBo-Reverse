@@ -3,8 +3,10 @@ import 'package:get/get.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
+import 'package:yuanbo/services/announcement_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
+import 'package:yuanbo/widgets/announcement_dialog.dart';
 
 /// 启动页
 class SplashPage extends StatefulWidget {
@@ -30,13 +32,27 @@ class _SplashPageState extends State<SplashPage>
   }
 
   Future<void> _init() async {
+    var version = '';
     try {
       final pkg = await PackageInfo.fromPlatform();
-      setState(() => _version = pkg.version);
+      version = pkg.version;
+      setState(() => _version = version);
     } catch (_) {}
+    final announcement = await AnnouncementService.load();
+    final showAnnouncement =
+        version.isNotEmpty && await AnnouncementService.shouldShow(version);
     await Future.delayed(const Duration(seconds: 2));
-    if (mounted) {
-      Get.off(() => const HomePage());
+    if (!mounted) return;
+    Get.off(() => const HomePage());
+    if (showAnnouncement) {
+      await AnnouncementService.markShown(version);
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (Get.context != null) {
+        Get.dialog(
+          AnnouncementDialog(content: announcement),
+          barrierDismissible: false,
+        );
+      }
     }
   }
 

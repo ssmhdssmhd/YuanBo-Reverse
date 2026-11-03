@@ -45,6 +45,22 @@ class AppConstants {
     'https://ghproxy.net/$githubRaw',
     githubRaw,
   ];
+
+  /// 首页公告文件（sygg.txt）与默认公告
+  static const String announcementPath = 'sygg.txt';
+  static const String announcementRaw =
+      'https://raw.githubusercontent.com/$githubRepo/main/$announcementPath';
+  static const List<String> announcementUrls = [
+    'https://fastly.jsdelivr.net/gh/$githubRepo@main/$announcementPath',
+    'https://cdn.jsdelivr.net/gh/$githubRepo@main/$announcementPath',
+    'https://gh-proxy.com/$announcementRaw',
+    'https://ghproxy.net/$announcementRaw',
+    announcementRaw,
+  ];
+  static const String defaultAnnouncement = '📢公告\n'
+      '本软件为内测版本，仅限内测使用，专人维护。\n'
+      '开发者：射手沫蝴蝶\n'
+      '致敬朋友：梁哥';
 }
 
 /// 视频源

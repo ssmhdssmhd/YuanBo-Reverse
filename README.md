@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.5 |
+| 当前版本 | v1.0.6 |
 | 构建时间 | 2026-11-03 |
 | 技术栈 | Flutter + GetX + video_player + Dio |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -15,10 +15,12 @@
 ## 功能特性
 
 - 玻璃拟态（Glassmorphism）深色 UI，紫蓝渐变背景
+- 启动公告：读取仓库根目录 `sygg.txt`，每个版本首次启动弹窗展示（含公告图片）
 - 视频源管理：添加资源站、左滑删除、从仓库一键同步
 - 资源自动同步：App 启动 / 检查更新时读取仓库 `zyz.txt`，用户无需手动维护
 - 视频分类浏览、搜索、详情
 - 多线路多剧集在线播放，播放器内可「换源」续播
+- PotPlayer 风格内置播放器，支持调用本机外部播放器（PotPlayer 等）打开当前剧集
 - 侧边栏：视频源管理 / 分享 App / 检查更新
 - 应用内更新：自动检测 GitHub Release，国内镜像加速下载 APK
 
@@ -49,6 +51,21 @@
 4. 点击「立即更新」，通过国内镜像（gh-proxy / ghproxy / jsDelivr 等）下载 APK
 5. 下载完成后调起系统安装器
 
+## 启动公告
+
+公告内容由仓库根目录 [sygg.txt](sygg.txt) 维护，配合 `assets/sygg.jpg` 图片展示：
+
+```
+📢公告
+本软件为内测版本，仅限内测使用，专人维护。
+开发者：射手沫蝴蝶
+致敬朋友：梁哥
+```
+
+- 第一行作为公告标题，其余为正文
+- 启动时通过 jsDelivr / gh-proxy 等镜像读取，读取失败时使用内置默认公告
+- 同一版本只在首次启动时弹窗一次，升级版本后重新弹出
+
 ## 项目结构
 
 ```
@@ -59,15 +76,18 @@ lib/
 ├── services/
 │   ├── api_service.dart       # MacCMS API
 │   ├── source_service.dart    # 视频源持久化 + 仓库 zyz.txt 同步
+│   ├── announcement_service.dart # 公告缓存 + 仓库 sygg.txt 同步
 │   └── update_service.dart    # 检查更新 + 镜像下载 APK
 ├── pages/
-│   ├── splash_page.dart       # 启动页
+│   ├── splash_page.dart       # 启动页（版本首次启动弹出公告）
 │   ├── home_page.dart         # 首页（分类 + 列表 + 侧边栏）
 │   ├── detail_page.dart       # 详情页
-│   ├── player_page.dart       # 播放器（支持换源）
+│   ├── player_page.dart       # PotPlayer 风格播放器（换源 / 外部播放）
 │   ├── source_page.dart       # 视频源管理（添加 / 左滑删除 / 同步）
 │   └── update_page.dart       # 检查更新
-├── widgets/glass_card.dart    # 玻璃卡片 / 视频卡片
+├── widgets/
+│   ├── glass_card.dart        # 玻璃卡片 / 视频卡片
+│   └── announcement_dialog.dart # 启动公告弹窗
 └── utils/constants.dart       # 常量、内置源与镜像配置
 ```
 
@@ -97,6 +117,14 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.6 (20261103)
+- 新增启动公告：仓库 `sygg.txt` 维护公告内容，启动时弹窗展示（含公告图片 `assets/sygg.jpg`）
+- 公告每个版本只弹一次，升级到新版本后重新弹出
+- 公告内容通过 jsDelivr / gh-proxy 等国内镜像同步，失败时使用内置默认公告
+- 播放器改为 PotPlayer 风格：黑色极简底部控制条（播放 / 进度 / 时间 / 倍速 / 全屏）
+- 新增「外部播放器」入口：调用本机 PotPlayer 等播放器打开当前剧集，播放失败时也可一键外放
+- 保留双击左右 10 秒快退快进、控件自动隐藏、换源续播等能力
 
 ### v1.0.5 (20261103)
 - 修复首页卡片「更新至第 N 集」被裁切：卡片改为弹性布局，网格比例调整
