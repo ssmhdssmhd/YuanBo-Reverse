@@ -56,8 +56,7 @@ class VodCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AspectRatio(
-            aspectRatio: 0.72,
+          Expanded(
             child: ClipRRect(
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(14)),

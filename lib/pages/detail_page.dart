@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:yuanbo/models/vod.dart';
+import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
@@ -23,6 +24,9 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void initState() {
     super.initState();
+    if (Get.isRegistered<HomeController>()) {
+      api.setSource(Get.find<HomeController>().currentSource.value);
+    }
     _loadDetail();
   }
 
@@ -216,34 +220,36 @@ class _DetailPageState extends State<DetailPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '播放线路：${line.name}',
+                '播放线路：${line.name}（${line.episodes.length}集）',
                 style: const TextStyle(
                     color: Colors.white, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: line.episodes.asMap().entries.map((entry) {
-                  final ep = entry.value;
-                  return ActionChip(
-                    label: Text(ep.name),
-                    backgroundColor: GlassTheme.glassFill,
-                    labelStyle: const TextStyle(
-                        color: GlassTheme.textSecondary, fontSize: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: const BorderSide(color: GlassTheme.glassBorder),
-                    ),
-                    onPressed: ep.url.isNotEmpty
-                        ? () => Get.to(() => PlayerPage(
-                              episode: ep,
-                              vodName: vod.vodName,
-                              episodeIndex: entry.key,
-                            ))
-                        : null,
-                  );
-                }).toList(),
+              SizedBox(
+                height: 36,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: line.episodes.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) {
+                    final ep = line.episodes[i];
+                    return ActionChip(
+                      label: Text(ep.name),
+                      backgroundColor: GlassTheme.glassFill,
+                      labelStyle: const TextStyle(
+                          color: GlassTheme.textSecondary, fontSize: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: const BorderSide(color: GlassTheme.glassBorder),
+                      ),
+                      onPressed: () => Get.to(() => PlayerPage(
+                            episode: ep,
+                            vodName: vod.vodName,
+                            episodeIndex: i,
+                          )),
+                    );
+                  },
+                ),
               ),
             ],
           ),

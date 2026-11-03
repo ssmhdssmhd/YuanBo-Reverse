@@ -45,49 +45,75 @@ class UpdateService {
     return null;
   }
 
-  /// 通过镜像加速下载 APK
+  /// 通过镜像加速下载 APK，支持断点续传
   /// 返回下载后的本地文件路径
   Future<String?> downloadApk(
     String url, {
     ProgressCallback? onProgress,
   }) async {
-    // 尝试多个镜像，直到成功
-    for (final mirror in AppConstants.githubMirrors) {
-      final accelerated = mirror + url;
-      try {
-        final dir = await getExternalStorageDirectory() ??
-            await getApplicationDocumentsDirectory();
-        final fileName = url.split('/').last;
-        final savePath = '${dir.path}/$fileName';
+    final dir = await getExternalStorageDirectory() ??
+        await getApplicationDocumentsDirectory();
+    final fileName = url.split('/').last;
+    final savePath = '${dir.path}/$fileName';
+    final partFile = File('$savePath.part');
 
-        await _dio.download(
-          accelerated,
-          savePath,
-          onReceiveProgress: onProgress,
+    final targets = <String>[
+      ...AppConstants.githubMirrors.map((m) => m + url),
+      url,
+    ];
+
+    for (final target in targets) {
+      RandomAccessFile? raf;
+      try {
+        final start = partFile.existsSync() ? await partFile.length() : 0;
+        final res = await _dio.get<ResponseBody>(
+          target,
           options: Options(
-            headers: const {HttpHeaders.userAgentHeader: 'YuanBo-Updater'},
+            responseType: ResponseType.stream,
+            followRedirects: true,
+            validateStatus: (s) => s == 200 || s == 206,
+            headers: {
+              HttpHeaders.userAgentHeader: 'YuanBo-Updater',
+              if (start > 0) HttpHeaders.rangeHeader: 'bytes=$start-',
+            },
           ),
         );
+        final body = res.data;
+        if (body == null) continue;
+
+        final resuming = res.statusCode == 206 && start > 0;
+        final offset = resuming ? start : 0;
+        final length = int.tryParse(
+              body.headers[HttpHeaders.contentLengthHeader]?.first ?? '',
+            ) ??
+            -1;
+        final total = length > 0 ? offset + length : 0;
+
+        raf = partFile.openSync(
+          mode: resuming ? FileMode.append : FileMode.write,
+        );
+        var received = 0;
+        await for (final chunk in body.stream) {
+          raf.writeFromSync(chunk);
+          received += chunk.length;
+          onProgress?.call(offset + received, total);
+        }
+        await raf.flush();
+        await raf.close();
+        raf = null;
+
+        final file = File(savePath);
+        if (file.existsSync()) file.deleteSync();
+        partFile.renameSync(savePath);
         return savePath;
-      } catch (e) {
-        // 尝试下一个镜像
+      } catch (_) {
+        // 网络中断时保留 .part，下次从断点继续
+        try {
+          await raf?.close();
+        } catch (_) {}
         continue;
       }
     }
-    // 镜像全部失败，直连
-    try {
-      final dir = await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
-      final fileName = url.split('/').last;
-      final savePath = '${dir.path}/$fileName';
-      await _dio.download(
-        url,
-        savePath,
-        onReceiveProgress: onProgress,
-      );
-      return savePath;
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 }

@@ -64,42 +64,57 @@ class VodInfo {
     return int.tryParse(v.toString()) ?? 0;
   }
 
-  /// 解析播放线路（多线路用 $$ 分隔）
+  static final RegExp _lineSeparator = RegExp(r'\${2,}');
+  static final RegExp _playableUrl =
+      RegExp(r'\.(m3u8|mp4|flv|mkv|avi|ts)(\?|$)', caseSensitive: false);
+
+  /// 解析播放线路（多线路用 $$ / $$$ 分隔）
   List<PlayLine> get playLines {
     if (vodPlayFrom.isEmpty || vodPlayUrl.isEmpty) return [];
-    final froms = vodPlayFrom.split(r'$$');
-    final urls = vodPlayUrl.split(r'$$');
-    final lines = <PlayLine>[];
+    final froms = vodPlayFrom.split(_lineSeparator);
+    final urls = vodPlayUrl.split(_lineSeparator);
+    final raw = <PlayLine>[];
     for (var i = 0; i < froms.length && i < urls.length; i++) {
-      lines.add(PlayLine(name: froms[i].trim(), url: urls[i].trim()));
+      final name = froms[i].replaceAll(RegExp(r'^\$+'), '').trim();
+      final episodes = _parseEpisodes(urls[i]);
+      if (episodes.isEmpty) continue;
+      raw.add(PlayLine(
+        name: name.isEmpty ? '线路${i + 1}' : name,
+        episodes: episodes,
+      ));
     }
-    return lines;
+    // 过滤掉网页播放页等无法直接播放的线路
+    final playable = raw
+        .where((l) => l.episodes.any((e) => _playableUrl.hasMatch(e.url)))
+        .toList();
+    return playable.isNotEmpty ? playable : raw;
+  }
+
+  /// 解析单线路剧集（# 分隔，每集 名称$url）
+  static List<PlayEpisode> _parseEpisodes(String raw) {
+    final list = <PlayEpisode>[];
+    var index = 0;
+    for (final chunk in raw.split('#')) {
+      final e = chunk.trim();
+      if (e.isEmpty) continue;
+      final idx = e.indexOf(r'$');
+      var name = idx < 0 ? e : e.substring(0, idx).trim();
+      final link = idx < 0 ? '' : e.substring(idx + 1).trim();
+      index++;
+      if (name.isEmpty) name = '第$index集';
+      if (!link.startsWith('http')) continue;
+      list.add(PlayEpisode(name: name, url: link));
+    }
+    return list;
   }
 }
 
 /// 单条播放线路
 class PlayLine {
   final String name;
-  final String url;
+  final List<PlayEpisode> episodes;
 
-  const PlayLine({required this.name, required this.url});
-
-  /// 解析单线路内的剧集列表（# 分隔，每集 名称$url）
-  List<PlayEpisode> get episodes {
-    if (url.isEmpty) return [];
-    return url
-        .split('#')
-        .where((e) => e.trim().isNotEmpty)
-        .map((e) {
-          final idx = e.indexOf('\$');
-          if (idx < 0) return PlayEpisode(name: e.trim(), url: '');
-          return PlayEpisode(
-            name: e.substring(0, idx).trim(),
-            url: e.substring(idx + 1).trim(),
-          );
-        })
-        .toList();
-  }
+  const PlayLine({required this.name, required this.episodes});
 }
 
 /// 单集
