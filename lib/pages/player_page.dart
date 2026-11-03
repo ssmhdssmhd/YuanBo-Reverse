@@ -9,6 +9,7 @@ import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
+import 'package:yuanbo/pages/cast_page.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/parse_api_page.dart';
 import 'package:yuanbo/services/api_service.dart';
@@ -81,6 +82,20 @@ class _PlayerPageState extends State<PlayerPage> {
   double? _dragValue;
   double _speed = 1.0;
 
+  // 锁屏防误触
+  bool _locked = false;
+  bool _lockTip = false;
+  Timer? _lockTipTimer;
+
+  // 全屏横向拖动进度
+  bool _seekDragging = false;
+  double _seekDragStartMs = 0;
+  double _seekDragMs = 0;
+  double _seekDragStartX = 0;
+
+  /// 画质增强模式（0 标准、1 鲜艳、2 明亮、3 柔和）
+  int _quality = 0;
+
   /// 0 = 简洁版，1 = 哔哩哔哩风格（横屏 + 播放器内选集）
   int _style = SettingsService.currentPlayerStyle;
   List<PlayEpisode> _episodes = const [];
@@ -101,6 +116,10 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Future<void> _init() async {
     _style = await SettingsService.getPlayerStyle();
+    _quality = await SettingsService.getQuality();
+    final pip = await SettingsService.getPipEnabled();
+    await SystemLevelService.setPipEnabled(pip);
+    await SystemLevelService.setPlaying(true);
     if (!mounted) return;
     if (_style == SettingsService.playerBili) {
       await SystemChrome.setPreferredOrientations([
@@ -253,6 +272,120 @@ class _PlayerPageState extends State<PlayerPage> {
     } else {
       _togglePlay();
     }
+  }
+
+  ColorFilter? get _qualityFilter {
+    switch (_quality) {
+      case 1:
+        return const ColorFilter.matrix([
+          1.2, 0.1, 0.05, 0, -6,
+          0.05, 1.2, 0.1, 0, -6,
+          0.05, 0.1, 1.2, 0, -6,
+          0, 0, 0, 1, 0,
+        ]);
+      case 2:
+        return const ColorFilter.matrix([
+          1.15, 0, 0, 0, 12,
+          0, 1.15, 0, 0, 12,
+          0, 0, 1.15, 0, 12,
+          0, 0, 0, 1, 0,
+        ]);
+      case 3:
+        return const ColorFilter.matrix([
+          1.02, 0.02, 0, 0, 4,
+          0.02, 0.99, 0.02, 0, 4,
+          0, 0.02, 0.96, 0, 4,
+          0, 0, 0, 1, 0,
+        ]);
+      default:
+        return null;
+    }
+  }
+
+  Future<void> _selectQuality(int value) async {
+    setState(() => _quality = value);
+    await SettingsService.setQuality(value);
+    if (mounted) {
+      _toast('画质增强：${SettingsService.qualityNames[value]}');
+    }
+    _scheduleHide();
+  }
+
+  void _toggleLock() {
+    final next = !_locked;
+    setState(() {
+      _locked = next;
+      _controlsVisible = !next;
+      _lockTip = false;
+    });
+    _lockTipTimer?.cancel();
+    if (next) {
+      setState(() => _lockTip = true);
+      _lockTipTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _lockTip = false);
+      });
+    } else {
+      _scheduleHide();
+    }
+  }
+
+  void _showLockTip() {
+    setState(() => _lockTip = true);
+    _lockTipTimer?.cancel();
+    _lockTipTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _lockTip = false);
+    });
+  }
+
+  void _onSeekDragStart(DragStartDetails d, double maxMs) {
+    final ctrl = _videoCtrl;
+    if (ctrl == null) return;
+    _hideTimer?.cancel();
+    final start = ctrl.value.position.inMilliseconds.toDouble();
+    setState(() {
+      _seekDragging = true;
+      _seekDragStartMs = start;
+      _seekDragMs = start;
+      _seekDragStartX = d.localPosition.dx;
+    });
+    _beginScrub(start);
+  }
+
+  void _onSeekDragUpdate(DragUpdateDetails d, double maxMs) {
+    if (!_seekDragging) return;
+    final width = MediaQuery.of(context).size.width;
+    if (width <= 0) return;
+    final dx = d.localPosition.dx - _seekDragStartX;
+    final target = (_seekDragStartMs + dx / width * maxMs).clamp(0.0, maxMs);
+    setState(() {
+      _seekDragMs = target;
+      _dragValue = target;
+    });
+    _requestPreview(target);
+  }
+
+  void _onSeekDragEnd() {
+    if (!_seekDragging) return;
+    setState(() => _seekDragging = false);
+    _videoCtrl?.seekTo(Duration(milliseconds: _seekDragMs.toInt()));
+    setState(() => _dragValue = null);
+    _endScrub();
+    _showHint('已定位至 ${_fmt(Duration(milliseconds: _seekDragMs.toInt()))}');
+  }
+
+  Future<void> _openCast() async {
+    final ep = _episode;
+    if (ep == null) return;
+    _hideTimer?.cancel();
+    Get.to(() => CastPage(
+          videoUrl: _playUrl.isNotEmpty ? _playUrl : ep.url,
+          title: '${widget.vodName} ${ep.name}'.trim(),
+        ));
+  }
+
+  Future<void> _enterPip() async {
+    final ok = await SystemLevelService.enterPip();
+    if (!ok) _toast('当前系统不支持画中画（需 Android 8.0 及以上）');
   }
 
   Future<void> _toggleFullscreen() async {
@@ -786,7 +919,9 @@ class _PlayerPageState extends State<PlayerPage> {
     _hideTimer?.cancel();
     _hintTimer?.cancel();
     _hudTimer?.cancel();
+    _lockTipTimer?.cancel();
     _disposePreview();
+    SystemLevelService.setPlaying(false);
     if (_style == SettingsService.playerBili) {
       SystemLevelService.resetBrightness();
     }
@@ -943,22 +1078,39 @@ class _PlayerPageState extends State<PlayerPage> {
         value.position.inMilliseconds.clamp(0, durationMs).toDouble();
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _toggleControls,
-      onDoubleTapDown: (d) => _doubleTapPos = d.localPosition,
-      onDoubleTap: _handleDoubleTap,
+      onTap: _locked ? _showLockTip : _toggleControls,
+      onDoubleTapDown:
+          _locked ? null : (d) => _doubleTapPos = d.localPosition,
+      onDoubleTap: _locked ? null : _handleDoubleTap,
       onVerticalDragStart:
-          _style == SettingsService.playerBili ? _onVerticalStart : null,
+          _style == SettingsService.playerBili && !_locked
+              ? _onVerticalStart
+              : null,
       onVerticalDragUpdate:
-          _style == SettingsService.playerBili ? _onVerticalUpdate : null,
+          _style == SettingsService.playerBili && !_locked
+              ? _onVerticalUpdate
+              : null,
       onVerticalDragEnd:
-          _style == SettingsService.playerBili ? _onVerticalEnd : null,
+          _style == SettingsService.playerBili && !_locked
+              ? _onVerticalEnd
+              : null,
+      onHorizontalDragStart:
+          _locked ? null : (d) => _onSeekDragStart(d, maxMs),
+      onHorizontalDragUpdate:
+          _locked ? null : (d) => _onSeekDragUpdate(d, maxMs),
+      onHorizontalDragEnd: _locked ? null : (_) => _onSeekDragEnd(),
       child: Stack(
         fit: StackFit.expand,
         children: [
           Center(
             child: AspectRatio(
               aspectRatio: value.aspectRatio > 0 ? value.aspectRatio : 16 / 9,
-              child: VideoPlayer(ctrl),
+              child: _qualityFilter == null
+                  ? VideoPlayer(ctrl)
+                  : ColorFiltered(
+                      colorFilter: _qualityFilter!,
+                      child: VideoPlayer(ctrl),
+                    ),
             ),
           ),
           if (value.isBuffering)
@@ -971,6 +1123,7 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
           if (_hudVisible) _buildGestureHud(),
+          if (_seekDragging) _buildSeekDragHud(),
           AnimatedOpacity(
             opacity: _controlsVisible ? 1 : 0,
             duration: const Duration(milliseconds: 200),
@@ -992,8 +1145,90 @@ class _PlayerPageState extends State<PlayerPage> {
                     style: const TextStyle(color: Colors.white, fontSize: 13)),
               ),
             ),
+          if (_locked) _buildLockOverlay(),
         ],
       ),
+    );
+  }
+
+  /// 横滑调进度时的中央提示（含缩略图）
+  Widget _buildSeekDragHud() {
+    final time = _fmt(Duration(milliseconds: _seekDragMs.toInt()));
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_previewReady && _previewCtrl != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  width: 168,
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: VideoPlayer(_previewCtrl!),
+                  ),
+                ),
+              )
+            else
+              const SizedBox(
+                width: 168,
+                height: 94,
+                child: Icon(Icons.fast_forward, color: Colors.white54, size: 36),
+              ),
+            const SizedBox(height: 6),
+            Text(
+              time,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 锁屏状态：仅保留解锁按钮与提示
+  Widget _buildLockOverlay() {
+    return Stack(
+      children: [
+        Positioned(
+          left: 12,
+          top: 12,
+          child: SafeArea(
+            child: IconButton(
+              tooltip: '解锁',
+              onPressed: _toggleLock,
+              icon: const Icon(Icons.lock, color: Colors.white70, size: 22),
+            ),
+          ),
+        ),
+        if (_lockTip)
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.72),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lock, color: Colors.white70, size: 16),
+                  SizedBox(width: 6),
+                  Text('已锁定，点击左上角解锁',
+                      style: TextStyle(color: Colors.white, fontSize: 13)),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1135,6 +1370,10 @@ class _PlayerPageState extends State<PlayerPage> {
                                   color: Colors.white70, fontSize: 11)),
                         ),
                       ),
+                      _barIcon(Icons.cast, _openCast),
+                      _barIcon(Icons.picture_in_picture_alt, _enterPip),
+                      _barIcon(
+                          _locked ? Icons.lock : Icons.lock_open, _toggleLock),
                       _barIcon(Icons.open_in_new, _openExternal),
                       _barIcon(
                         _fullscreen
@@ -1207,6 +1446,8 @@ class _PlayerPageState extends State<PlayerPage> {
                       ],
                     ),
                   ),
+                  _barIcon(Icons.cast, _openCast, size: 20),
+                  _barIcon(Icons.picture_in_picture_alt, _enterPip, size: 20),
                   _barIcon(Icons.open_in_new, _openExternal, size: 20),
                   _barIcon(Icons.swap_horiz,
                       _switching ? () {} : _switchSource,
@@ -1280,6 +1521,9 @@ class _PlayerPageState extends State<PlayerPage> {
                           _togglePlay,
                           size: 26),
                       _barIcon(Icons.skip_next, _nextEpisode, size: 22),
+                      _barIcon(
+                          _locked ? Icons.lock : Icons.lock_open, _toggleLock,
+                          size: 20),
                       const Spacer(),
                       _biliTextAction('选集', _showEpisodeSheet, bold: true),
                       PopupMenuButton<double>(
@@ -1309,17 +1553,44 @@ class _PlayerPageState extends State<PlayerPage> {
                           ),
                         ),
                       ),
-                      Container(
-                        margin: const EdgeInsets.only(left: 4),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.white24),
-                          borderRadius: BorderRadius.circular(4),
+                      PopupMenuButton<int>(
+                        initialValue: _quality,
+                        tooltip: '画质增强',
+                        color: const Color(0xFF1E1B3A),
+                        onSelected: _selectQuality,
+                        itemBuilder: (_) => List.generate(
+                          SettingsService.qualityNames.length,
+                          (i) => PopupMenuItem<int>(
+                            value: i,
+                            child: Text(
+                              SettingsService.qualityNames[i],
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
                         ),
-                        child: const Text('高清',
+                        child: Container(
+                          margin: const EdgeInsets.only(left: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                                color: _quality == 0
+                                    ? Colors.white24
+                                    : const Color(0xFFFB7299)),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _quality == 0
+                                ? '画质'
+                                : SettingsService.qualityNames[_quality],
                             style: TextStyle(
-                                color: Colors.white70, fontSize: 11)),
+                              color: _quality == 0
+                                  ? Colors.white70
+                                  : const Color(0xFFFB7299),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),

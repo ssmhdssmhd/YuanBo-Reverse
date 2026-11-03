@@ -1,8 +1,12 @@
 package com.moxi.yuanbo
 
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.media.AudioManager
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.provider.Settings
+import android.util.Rational
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -10,6 +14,9 @@ import kotlin.math.roundToInt
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.moxi.yuanbo/system_level"
+    private var pipEnabled = false
+    private var playing = false
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -40,9 +47,65 @@ class MainActivity : FlutterActivity() {
                             result.success(null)
                         }
                     }
+                    "setPipEnabled" -> {
+                        pipEnabled = call.argument<Boolean>("value") ?: false
+                        result.success(null)
+                    }
+                    "setPlaying" -> {
+                        playing = call.argument<Boolean>("value") ?: false
+                        result.success(null)
+                    }
+                    "enterPip" -> result.success(enterPipMode())
+                    "acquireMulticast" -> {
+                        acquireMulticastLock()
+                        result.success(null)
+                    }
+                    "releaseMulticast" -> {
+                        releaseMulticastLock()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onUserLeaveHint() {
+        if (pipEnabled && playing) {
+            enterPipMode()
+        }
+        super.onUserLeaveHint()
+    }
+
+    private fun enterPipMode(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        return try {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .build()
+            enterPictureInPictureMode(params)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock != null) return
+        try {
+            val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            multicastLock = manager.createMulticastLock("yuanbo_cast").also {
+                it.setReferenceCounted(false)
+                it.acquire()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        try {
+            multicastLock?.release()
+        } catch (_: Exception) {
+        }
+        multicastLock = null
     }
 
     private fun currentBrightness(): Double {

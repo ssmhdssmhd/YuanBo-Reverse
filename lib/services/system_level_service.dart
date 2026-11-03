@@ -44,4 +44,41 @@ class SystemLevelService {
       });
     } catch (_) {}
   }
+
+  /// 是否允许切后台自动进入画中画（悬浮窗）
+  static Future<void> setPipEnabled(bool value) async {
+    try {
+      await _channel.invokeMethod('setPipEnabled', {'value': value});
+    } catch (_) {}
+  }
+
+  /// 播放状态（用于切后台自动进入画中画）
+  static Future<void> setPlaying(bool value) async {
+    try {
+      await _channel.invokeMethod('setPlaying', {'value': value});
+    } catch (_) {}
+  }
+
+  /// 手动进入画中画，返回是否成功（Android 8.0 以下不支持）
+  static Future<bool> enterPip() async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('enterPip');
+      return ok ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 投屏搜索需要持有 Wi-Fi 组播锁
+  static Future<void> acquireMulticast() async {
+    try {
+      await _channel.invokeMethod('acquireMulticast');
+    } catch (_) {}
+  }
+
+  static Future<void> releaseMulticast() async {
+    try {
+      await _channel.invokeMethod('releaseMulticast');
+    } catch (_) {}
+  }
 }

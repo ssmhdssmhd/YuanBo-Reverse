@@ -16,6 +16,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   int _style = SettingsService.playerSimple;
   bool _showSearch = true;
+  int _quality = 0;
+  bool _pip = false;
 
   @override
   void initState() {
@@ -26,10 +28,14 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _load() async {
     final style = await SettingsService.getPlayerStyle();
     final showSearch = await SettingsService.getShowSearch();
+    final quality = await SettingsService.getQuality();
+    final pip = await SettingsService.getPipEnabled();
     if (mounted) {
       setState(() {
         _style = style;
         _showSearch = showSearch;
+        _quality = quality;
+        _pip = pip;
       });
     }
   }
@@ -40,6 +46,16 @@ class _SettingsPageState extends State<SettingsPage> {
     if (Get.isRegistered<HomeController>()) {
       Get.find<HomeController>().showSearch.value = value;
     }
+  }
+
+  Future<void> _setQuality(int value) async {
+    setState(() => _quality = value);
+    await SettingsService.setQuality(value);
+  }
+
+  Future<void> _togglePip(bool value) async {
+    setState(() => _pip = value);
+    await SettingsService.setPipEnabled(value);
   }
 
   Future<void> _select(int style) async {
@@ -93,6 +109,68 @@ class _SettingsPageState extends State<SettingsPage> {
                 padding: EdgeInsets.symmetric(horizontal: 4),
                 child: Text('切换后再次打开剧集生效',
                     style: TextStyle(color: GlassTheme.textMuted, fontSize: 11)),
+              ),
+              const SizedBox(height: 24),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(4, 0, 4, 10),
+                child: Text('播放增强',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+              ),
+              GlassCard(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('画质增强',
+                        style: TextStyle(color: Colors.white, fontSize: 14)),
+                    const SizedBox(height: 4),
+                    const Text('对画面做色彩增强，播放器中也可随时切换',
+                        style: TextStyle(
+                            color: GlassTheme.textMuted,
+                            fontSize: 12,
+                            height: 1.5)),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      children: List.generate(
+                        SettingsService.qualityNames.length,
+                        (i) => ChoiceChip(
+                          label: Text(SettingsService.qualityNames[i]),
+                          selected: _quality == i,
+                          onSelected: (_) => _setQuality(i),
+                          backgroundColor: GlassTheme.glassFill,
+                          selectedColor: GlassTheme.primary,
+                          labelStyle: TextStyle(
+                            color: _quality == i
+                                ? Colors.white
+                                : GlassTheme.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              GlassCard(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                child: SwitchListTile(
+                  value: _pip,
+                  onChanged: _togglePip,
+                  secondary: const Icon(Icons.picture_in_picture_alt,
+                      color: GlassTheme.accent),
+                  title: const Text('悬浮窗（画中画）',
+                      style: TextStyle(color: Colors.white, fontSize: 15)),
+                  subtitle: const Text(
+                    '默认关闭。开启后播放时切到后台会自动缩为小窗，也可在播放器内手动进入（需 Android 8.0+）',
+                    style: TextStyle(
+                        color: GlassTheme.textMuted, fontSize: 12, height: 1.5),
+                  ),
+                ),
               ),
               const SizedBox(height: 24),
               const Padding(
