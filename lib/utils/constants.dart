@@ -37,17 +37,19 @@ class AppConstants {
     'https://ghproxy.net/',
   ];
 
-  /// 视频源配置的加速地址（依次尝试，最后直连）
-  /// 带时间戳参数，避开 jsDelivr / raw CDN 缓存，仓库更新后能及时生效
+  /// 视频源配置地址（依次尝试）
+  /// 优先可用性最好的代理与直连（内容最新），jsDelivr 放在最后兜底，
+  /// 并带时间戳参数尽量避开 CDN 缓存
   static List<String> sourceConfigUrls() {
     final ts = DateTime.now().millisecondsSinceEpoch;
     return [
-      'https://fastly.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath?t=$ts',
-      'https://cdn.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath?t=$ts',
       'https://gh-proxy.com/$githubRaw?t=$ts',
       'https://ghproxy.net/$githubRaw?t=$ts',
       'https://gh.api.99988866.xyz/$githubRaw?t=$ts',
+      'https://mirror.ghproxy.com/$githubRaw?t=$ts',
       '$githubRaw?t=$ts',
+      'https://fastly.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath?t=$ts',
+      'https://cdn.jsdelivr.net/gh/$githubRepo@main/$sourceConfigPath?t=$ts',
     ];
   }
 

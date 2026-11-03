@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/pages/detail_page.dart';
+import 'package:yuanbo/pages/player_source_page.dart';
 import 'package:yuanbo/pages/settings_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/pages/update_page.dart';
@@ -431,6 +432,10 @@ class HomePage extends StatelessWidget {
           _drawerItem(Icons.settings, '设置', () {
             Get.back();
             Get.to(() => const SettingsPage());
+          }),
+          _drawerItem(Icons.play_circle_outline, '播放器源', () {
+            Get.back();
+            Get.to(() => const PlayerSourcePage());
           }),
           _drawerItem(Icons.folder_copy, '视频源管理', () {
             Get.back();

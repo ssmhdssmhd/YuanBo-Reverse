@@ -47,7 +47,8 @@ class SourceService {
   /// 解析 zyz.txt 文本
   static List<VideoSource> parse(String text) {
     final list = <VideoSource>[];
-    for (final line in const LineSplitter().convert(text)) {
+    final clean = text.replaceAll('\ufeff', '');
+    for (final line in const LineSplitter().convert(clean)) {
       for (final source in VideoSource.parseLine(line)) {
         if (!list.contains(source)) list.add(source);
       }
