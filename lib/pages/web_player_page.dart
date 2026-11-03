@@ -27,7 +27,14 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   @override
   void initState() {
     super.initState();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _init();
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -158,27 +165,27 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   Widget _barIcon(IconData icon, String tip, VoidCallback onTap,
       {bool accent = false}) {
     return Padding(
-      padding: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.only(left: 6),
       child: Tooltip(
         message: tip,
         child: Material(
           color: Colors.white.withValues(alpha: accent ? 0.14 : 0.07),
-          borderRadius: BorderRadius.circular(19),
+          borderRadius: BorderRadius.circular(17),
           child: InkWell(
-            borderRadius: BorderRadius.circular(19),
+            borderRadius: BorderRadius.circular(17),
             onTap: onTap,
             child: Container(
-              width: 38,
-              height: 38,
+              width: 34,
+              height: 34,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(19),
+                borderRadius: BorderRadius.circular(17),
                 border: Border.all(
                   color: Colors.white.withValues(alpha: accent ? 0.25 : 0.09),
                 ),
               ),
               child: Icon(
                 icon,
-                size: 18,
+                size: 16,
                 color: accent ? GlassTheme.accent : Colors.white70,
               ),
             ),
@@ -212,50 +219,48 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
             child: Row(
               children: [
                 _barIcon(Icons.arrow_back_ios_new_rounded, '返回',
                     () => Navigator.of(context).maybePop()),
-                const SizedBox(width: 6),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+                  child: Row(
                     children: [
-                      Text(
-                        widget.title.isEmpty ? '网页播放' : widget.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.3,
+                      Flexible(
+                        flex: 3,
+                        child: Text(
+                          widget.title.isEmpty ? '网页播放' : widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.2,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: [
-                          Container(
-                            width: 5,
-                            height: 5,
-                            decoration: const BoxDecoration(
-                              color: GlassTheme.accent,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              '接口 · ${_api?.name ?? ''}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: GlassTheme.textMuted, fontSize: 11),
-                            ),
-                          ),
-                        ],
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 4,
+                        height: 4,
+                        decoration: const BoxDecoration(
+                          color: GlassTheme.accent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        flex: 2,
+                        child: Text(
+                          _api?.name ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: GlassTheme.textMuted, fontSize: 11),
+                        ),
                       ),
                     ],
                   ),
