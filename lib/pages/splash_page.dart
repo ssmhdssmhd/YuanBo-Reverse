@@ -57,14 +57,22 @@ class _SplashPageState extends State<SplashPage>
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
     Get.off(() => const HomePage());
-    if (showUpdateNotice && updateNotice.isNotEmpty) {
-      await UpdateNoticeService.markShown(version);
-      await Future.delayed(const Duration(milliseconds: 300));
+    if (showUpdateNotice) {
+      // 内置 gxgg.txt 兜底，保证每次版本更新都能弹出
+      final notice = updateNotice.isNotEmpty
+          ? updateNotice
+          : '📢 版本更新 v$version\n· 本次更新包含功能优化与问题修复';
+      // 等待首页挂载完成，避免弹窗因无 context 被跳过
+      for (var i = 0; i < 6 && Get.context == null; i++) {
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
       if (Get.context != null) {
         await Get.dialog(
-          UpdateNoticeDialog(content: updateNotice),
+          UpdateNoticeDialog(content: notice, version: version),
           barrierDismissible: false,
         );
+        // 用户确认关闭后才记录，避免弹窗未展示就丢失提示
+        await UpdateNoticeService.markShown(version);
       }
     }
     if (showAnnouncement) {

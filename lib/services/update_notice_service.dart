@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:yuanbo/utils/constants.dart';
 
@@ -9,13 +10,16 @@ class UpdateNoticeService {
   static const String _cacheFile = 'update_notice.txt';
   static const String _versionFile = 'update_notice_version.txt';
 
+  /// 安装包内置的当前版本更新内容（仓库 gxgg.txt 打包进 assets）
+  static const String _bundledAsset = 'gxgg.txt';
+
   static final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 6),
     receiveTimeout: const Duration(seconds: 8),
     headers: const {HttpHeaders.userAgentHeader: 'YuanBo-UpdateNotice'},
   ));
 
-  /// 加载更新内容：优先拉取仓库最新内容，失败时使用本地缓存
+  /// 加载更新内容：仓库最新 → 安装包内置 → 本地缓存
   static Future<String> load() async {
     final cache = await _read(_cacheFile);
     for (final url in AppConstants.updateNoticeUrls()) {
@@ -36,6 +40,8 @@ class UpdateNoticeService {
         // 尝试下一个镜像
       }
     }
+    final bundled = await _loadBundled();
+    if (bundled.isNotEmpty) return bundled;
     return cache?.trim() ?? '';
   }
 
@@ -50,6 +56,14 @@ class UpdateNoticeService {
       _write(_versionFile, version);
 
   static String _clean(String text) => text.replaceAll('\ufeff', '').trim();
+
+  static Future<String> _loadBundled() async {
+    try {
+      return _clean(await rootBundle.loadString(_bundledAsset));
+    } catch (_) {
+      return '';
+    }
+  }
 
   static Future<String?> _read(String name) async {
     try {

@@ -5,8 +5,13 @@ import 'package:yuanbo/theme/glass_theme.dart';
 /// 版本更新公告弹窗（内容来自仓库 gxgg.txt，每次版本更新弹一次）
 class UpdateNoticeDialog extends StatelessWidget {
   final String content;
+  final String version;
 
-  const UpdateNoticeDialog({super.key, required this.content});
+  const UpdateNoticeDialog({
+    super.key,
+    required this.content,
+    this.version = '',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -62,10 +67,10 @@ class UpdateNoticeDialog extends StatelessWidget {
                         color: Colors.white, size: 20),
                   ),
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      '版本更新',
-                      style: TextStyle(
+                      version.isEmpty ? '版本更新' : '版本更新 v$version',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 19,
                         fontWeight: FontWeight.bold,
