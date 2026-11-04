@@ -17,12 +17,21 @@ class WebPlayService {
   static final List<WebPlayApi> _apis = [];
   static bool _loaded = false;
 
+  /// 内置接口种子版本：升级后自动补齐新增内置接口（用户删除后不会再次补回）
+  static const int _seedVersion = 2;
+  static int _seed = 0;
+
   static List<WebPlayApi> get apis => List.unmodifiable(_apis);
   static int get count => _apis.length;
 
-  /// 未配置时使用的兜底接口
+  /// 内置接口：未配置时使用，也用于「恢复默认」
   static const WebPlayApi fallback =
       WebPlayApi(name: '网页播放（默认）', url: defaultUrl);
+
+  static const List<WebPlayApi> builtins = [
+    fallback,
+    WebPlayApi(name: '网络 1', url: 'https://jx.lxyy.club/index.php?url='),
+  ];
 
   static Future<void> load() async {
     if (_loaded) return;
@@ -39,10 +48,15 @@ class WebPlayService {
       try {
         legacy = await SettingsService.getWebPlayUrl();
       } catch (_) {}
-      _apis.add(WebPlayApi(
-        name: legacy == defaultUrl ? '网页播放（默认）' : '网页播放',
-        url: legacy,
-      ));
+      if (legacy != defaultUrl) {
+        _apis.add(WebPlayApi(name: '网页播放', url: legacy));
+      }
+    }
+    if (_seed < _seedVersion) {
+      for (final api in builtins) {
+        if (!_apis.contains(api)) _apis.add(api);
+      }
+      _seed = _seedVersion;
       await _save();
     }
   }
@@ -65,11 +79,12 @@ class WebPlayService {
     await _save();
   }
 
-  /// 恢复默认接口
+  /// 恢复默认接口（补齐所有内置接口）
   static Future<void> restoreDefault() async {
     await _ensureLoaded();
-    if (_apis.contains(fallback)) return;
-    _apis.insert(0, fallback);
+    for (final api in builtins) {
+      if (!_apis.contains(api)) _apis.insert(0, api);
+    }
     await _save();
   }
 
@@ -122,6 +137,9 @@ class WebPlayService {
     final list = decoded is Map
         ? (decoded['apis'] ?? decoded['interfaces'] ?? decoded['list'])
         : decoded;
+    if (decoded is Map && decoded['seeded'] is int) {
+      _seed = decoded['seeded'] as int;
+    }
     if (list is! List) return 0;
     for (final item in list) {
       final api = WebPlayApi.fromJson(item);
@@ -136,6 +154,7 @@ class WebPlayService {
     try {
       final file = await _file();
       await file.writeAsString(jsonEncode({
+        'seeded': _seed,
         'apis': _apis.map((e) => e.toJson()).toList(),
       }));
     } catch (_) {}
