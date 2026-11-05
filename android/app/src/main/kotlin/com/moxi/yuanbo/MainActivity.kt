@@ -7,6 +7,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
 import android.util.Rational
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -16,6 +17,7 @@ class MainActivity : FlutterActivity() {
     private val channelName = "com.moxi.yuanbo/system_level"
     private var pipEnabled = false
     private var playing = false
+    private var keepScreenOn = false
     private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -55,6 +57,11 @@ class MainActivity : FlutterActivity() {
                         playing = call.argument<Boolean>("value") ?: false
                         result.success(null)
                     }
+                    "setKeepScreenOn" -> {
+                        keepScreenOn = call.argument<Boolean>("value") ?: false
+                        applyKeepScreenOn()
+                        result.success(null)
+                    }
                     "enterPip" -> result.success(enterPipMode())
                     "acquireMulticast" -> {
                         acquireMulticastLock()
@@ -74,6 +81,31 @@ class MainActivity : FlutterActivity() {
             enterPipMode()
         }
         super.onUserLeaveHint()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyKeepScreenOn()
+    }
+
+    override fun onPause() {
+        // 进入画中画后不再常亮，避免小窗状态耗电
+        if (isInPip()) applyKeepScreenOn()
+        super.onPause()
+    }
+
+    private fun isInPip(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
+
+    /// 播放时保持屏幕常亮，暂停 / 离开播放页 / 画中画时恢复系统息屏
+    private fun applyKeepScreenOn() {
+        runOnUiThread {
+            if (keepScreenOn && !isInPip()) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
     }
 
     private fun enterPipMode(): Boolean {

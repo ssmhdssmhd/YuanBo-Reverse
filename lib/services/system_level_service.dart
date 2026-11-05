@@ -45,6 +45,13 @@ class SystemLevelService {
     } catch (_) {}
   }
 
+  /// 播放时保持屏幕常亮（暂停 / 离开播放页后自动恢复系统息屏）
+  static Future<void> setKeepScreenOn(bool value) async {
+    try {
+      await _channel.invokeMethod('setKeepScreenOn', {'value': value});
+    } catch (_) {}
+  }
+
   /// 是否允许切后台自动进入画中画（悬浮窗）
   static Future<void> setPipEnabled(bool value) async {
     try {

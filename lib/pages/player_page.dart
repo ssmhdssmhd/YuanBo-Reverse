@@ -56,6 +56,9 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _parsing = false;
   String _parseLog = '正在解析平台视频…';
 
+  /// 是否已请求屏幕常亮（播放中保持，暂停 / 退出恢复）
+  bool _keepScreenOn = false;
+
   // 亮度 / 音量手势（播放器 2）
   double _brightness = -1;
   double _volume = -1;
@@ -148,6 +151,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _videoCtrl?.dispose();
     _videoCtrl = null;
     _disposePreview();
+    _setKeepScreenOn(false);
 
     var target = ep.url;
     // QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 等平台播放页先走 JSON 解析
@@ -192,6 +196,7 @@ class _PlayerPageState extends State<PlayerPage> {
       _videoCtrl = ctrl;
       ctrl.addListener(_onTick);
       await ctrl.play();
+      _setKeepScreenOn(true);
       if (!mounted) return;
       setState(() {
         _ready = true;
@@ -205,11 +210,19 @@ class _PlayerPageState extends State<PlayerPage> {
 
   void _onTick() {
     if (!mounted) return;
-    if (!(_videoCtrl?.value.isPlaying ?? false)) {
+    final playing = _videoCtrl?.value.isPlaying ?? false;
+    _setKeepScreenOn(playing);
+    if (!playing) {
       _hideTimer?.cancel();
       if (!_controlsVisible) _controlsVisible = true;
     }
     setState(() {});
+  }
+
+  void _setKeepScreenOn(bool value) {
+    if (_keepScreenOn == value) return;
+    _keepScreenOn = value;
+    SystemLevelService.setKeepScreenOn(value);
   }
 
   void _scheduleHide() {
@@ -231,9 +244,11 @@ class _PlayerPageState extends State<PlayerPage> {
     if (ctrl == null) return;
     if (ctrl.value.isPlaying) {
       ctrl.pause();
+      _setKeepScreenOn(false);
       _controlsVisible = true;
     } else {
       ctrl.play();
+      _setKeepScreenOn(true);
       _scheduleHide();
     }
     setState(() {});
@@ -566,6 +581,7 @@ class _PlayerPageState extends State<PlayerPage> {
       return;
     }
     if (!mounted) return;
+    _setKeepScreenOn(false);
     await Get.to(() => WebPlayerPage(
           pageUrl: videoUrl,
           title: '${widget.vodName} ${_episode?.name ?? ''}'.trim(),
@@ -920,6 +936,8 @@ class _PlayerPageState extends State<PlayerPage> {
     _lockTipTimer?.cancel();
     _disposePreview();
     SystemLevelService.setPlaying(false);
+    SystemLevelService.setKeepScreenOn(false);
+    _keepScreenOn = false;
     if (_style == SettingsService.playerBili) {
       SystemLevelService.resetBrightness();
     }

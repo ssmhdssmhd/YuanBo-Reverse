@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:yuanbo/models/web_play_api.dart';
+import 'package:yuanbo/services/system_level_service.dart';
 import 'package:yuanbo/services/web_play_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 
@@ -28,11 +29,14 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    // 网页内播放视频时避免自动息屏
+    SystemLevelService.setKeepScreenOn(true);
     _init();
   }
 
   @override
   void dispose() {
+    SystemLevelService.setKeepScreenOn(false);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
