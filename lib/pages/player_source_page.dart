@@ -49,6 +49,12 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
     await _load();
   }
 
+  String _styleLabel(int style) {
+    if (style == SettingsService.playerBili) return '播放器 2 · 哔哩哔哩风格';
+    if (style == SettingsService.playerV3) return '播放器 3 · 专业版';
+    return '播放器 1 · 简洁版';
+  }
+
   Future<void> _select(int style) async {
     if (_style == style) return;
     setState(() => _style = style);
@@ -56,8 +62,7 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-            '已切换为${style == SettingsService.playerBili ? '播放器 2 · 哔哩哔哩风格' : '播放器 1 · 简洁版'}'),
+        content: Text('已切换为${_styleLabel(style)}'),
         behavior: SnackBarBehavior.floating,
         backgroundColor: const Color(0xFF2A2648),
       ),
@@ -109,6 +114,13 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
                 icon: Icons.smart_display,
                 title: '播放器 2 · 哔哩哔哩风格',
                 subtitle: '自动横屏，粉色进度条，播放器内可「选集」与「倍速」',
+              ),
+              const SizedBox(height: 12),
+              _buildOption(
+                style: SettingsService.playerV3,
+                icon: Icons.desktop_windows,
+                title: '播放器 3 · 专业版',
+                subtitle: '自动横屏，顶部信息栏 + 右侧锁定 / 旋转 + 底部专业工具栏',
               ),
               const SizedBox(height: 24),
               const Padding(

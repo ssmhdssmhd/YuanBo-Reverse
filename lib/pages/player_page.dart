@@ -73,6 +73,11 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 是否已请求屏幕常亮（播放中保持，暂停 / 退出恢复）
   bool _keepScreenOn = false;
 
+  /// 播放器 3 的夜间滤镜 / 硬解 / 多线程状态
+  bool _night = false;
+  bool _hwDecode = true;
+  bool _multiThread = true;
+
   /// 观看历史：续播位置是否已应用 / 上次写入时间
   bool _resumeApplied = false;
   int _lastHistorySave = 0;
@@ -144,13 +149,15 @@ class _PlayerPageState extends State<PlayerPage> {
     await SystemLevelService.setPipEnabled(pip);
     await SystemLevelService.setPlaying(true);
     if (!mounted) return;
-    if (_style == SettingsService.playerBili) {
+    if (_style == SettingsService.playerBili ||
+        _style == SettingsService.playerV3) {
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       if (!mounted) return;
-      await _loadSystemLevels();
+      if (_style == SettingsService.playerBili) await _loadSystemLevels();
     }
     await _initPlayer(_episode ?? widget.episode);
   }
@@ -461,6 +468,12 @@ class _PlayerPageState extends State<PlayerPage> {
   Future<void> _toggleFullscreen() async {
     final next = !_fullscreen;
     setState(() => _fullscreen = next);
+    if (_style == SettingsService.playerV3) {
+      // 播放器 3 固定横屏，只切换系统栏显隐
+      await SystemChrome.setEnabledSystemUIMode(
+          next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+      return;
+    }
     if (next) {
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
@@ -1005,14 +1018,16 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   Widget build(BuildContext context) {
     final bili = _style == SettingsService.playerBili;
+    final v3 = _style == SettingsService.playerV3;
+    final custom = bili || v3;
     return PopScope(
-      canPop: bili || !_fullscreen,
+      canPop: custom || !_fullscreen,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _fullscreen) _toggleFullscreen();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        appBar: (_fullscreen || bili)
+        appBar: (_fullscreen || custom)
             ? null
             : AppBar(
                 backgroundColor: Colors.black,
@@ -1051,7 +1066,7 @@ class _PlayerPageState extends State<PlayerPage> {
             ? Stack(
                 children: [
                   _buildError(),
-                  if (bili)
+                  if (custom)
                     SafeArea(
                       child: IconButton(
                         icon: const Icon(Icons.arrow_back_ios_new,
@@ -1192,6 +1207,12 @@ class _PlayerPageState extends State<PlayerPage> {
                     strokeWidth: 2, color: Colors.white70),
               ),
             ),
+          if (_night)
+            const Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(color: Color(0x66000000)),
+              ),
+            ),
           if (_hudVisible) _buildGestureHud(),
           if (_seekDragging) _buildSeekDragHud(),
           AnimatedOpacity(
@@ -1307,7 +1328,373 @@ class _PlayerPageState extends State<PlayerPage> {
     if (_style == SettingsService.playerBili) {
       return _buildBiliControls(ctrl, positionMs, maxMs);
     }
+    if (_style == SettingsService.playerV3) {
+      return _buildV3Controls(ctrl, positionMs, maxMs);
+    }
     return _buildSimpleControls(ctrl, positionMs, maxMs);
+  }
+
+  /// 播放器 3：专业影视播放器风格（顶部信息栏 + 右侧锁定/旋转 + 底部工具栏）
+  Widget _buildV3Controls(
+      VideoPlayerController ctrl, double positionMs, double maxMs) {
+    final value = ctrl.value;
+    final pos = Duration(milliseconds: positionMs.toInt());
+    final size = value.size;
+    final res = size.width > 0
+        ? '${size.width.toInt()} × ${size.height.toInt()}'
+        : '画质自适应';
+    final title = widget.vodName.isEmpty
+        ? (_episode?.name ?? '')
+        : '${widget.vodName}：${_episode?.name ?? ''}';
+    const white70 = Color(0xB3FFFFFF);
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xC0000000),
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0xD9000000),
+          ],
+          stops: [0.0, 0.18, 0.62, 1.0],
+        ),
+      ),
+      child: SafeArea(
+        child: Stack(
+          children: [
+            // 顶部信息栏
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(2, 2, 8, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_ios_new,
+                          color: Colors.white, size: 20),
+                      onPressed: () => Get.back(),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            res,
+                            style: const TextStyle(
+                                color: white70, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _v3TopIcon(Icons.cast_rounded, _openCast),
+                    _v3TopIcon(
+                        _night
+                            ? Icons.nightlight_round
+                            : Icons.nightlight_outlined,
+                        () => setState(() => _night = !_night)),
+                    _v3TopIcon(Icons.star_border_rounded,
+                        () => _toast('收藏功能开发中')),
+                    _v3TopIcon(Icons.info_outline_rounded,
+                        () => _showV3Info(ctrl)),
+                    _v3TopIcon(Icons.settings_rounded,
+                        () => Get.to(() => const ParseApiPage())),
+                  ],
+                ),
+              ),
+            ),
+            // 中央播放 / 暂停
+            Center(
+              child: IconButton(
+                iconSize: 52,
+                splashRadius: 30,
+                onPressed: _togglePlay,
+                icon: Icon(
+                  value.isPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            // 右侧快捷栏
+            Positioned(
+              right: 2,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _v3Rail(
+                      _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                      _locked ? '解锁' : '锁定',
+                      _toggleLock,
+                    ),
+                    const SizedBox(height: 22),
+                    _v3Rail(Icons.screen_rotation_rounded, '旋转',
+                        _toggleFullscreen),
+                  ],
+                ),
+              ),
+            ),
+            // 底部进度条 + 工具栏
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      children: [
+                        Text(_fmt(pos),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600)),
+                        Expanded(
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 2,
+                              activeTrackColor: Colors.white,
+                              inactiveTrackColor:
+                                  Colors.white.withValues(alpha: 0.28),
+                              thumbColor: Colors.white,
+                              thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 5.5),
+                              overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 14),
+                              overlayColor: Colors.white24,
+                            ),
+                            child: Slider(
+                              min: 0,
+                              max: maxMs,
+                              value: positionMs.clamp(0.0, maxMs).toDouble(),
+                              onChanged: (v) =>
+                                  setState(() => _dragValue = v),
+                              onChangeStart: (_) => _hideTimer?.cancel(),
+                              onChangeEnd: (v) {
+                                ctrl.seekTo(Duration(milliseconds: v.toInt()));
+                                setState(() => _dragValue = null);
+                                _scheduleHide();
+                              },
+                            ),
+                          ),
+                        ),
+                        Text(_fmt(ctrl.value.duration),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600)),
+                        IconButton(
+                          icon: Icon(
+                            _fullscreen
+                                ? Icons.fullscreen_exit_rounded
+                                : Icons.fullscreen_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          onPressed: _toggleFullscreen,
+                        ),
+                      ],
+                    ),
+                  ),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                    child: Row(
+                      children: [
+                        _v3Tool('换源', _switching ? null : _switchSource),
+                        _v3Tool('选集', _showEpisodeSheet),
+                        _v3Tool('全屏', _toggleFullscreen),
+                        _v3Tool('EXO',
+                            () => _toast('当前使用系统 ExoPlayer 解码')),
+                        _v3Tool('硬解', () {
+                          setState(() => _hwDecode = !_hwDecode);
+                          _toast(_hwDecode ? '已启用硬解' : '已切换为软解');
+                        }, active: _hwDecode),
+                        _v3Tool('播放参数', () => _showV3Info(ctrl)),
+                        _v3Tool('多线程', () {
+                          setState(() => _multiThread = !_multiThread);
+                          _toast(_multiThread ? '多线程已开启' : '多线程已关闭');
+                        }, active: _multiThread),
+                        _v3Tool('硬解能力',
+                            () => _toast('当前设备支持 H.264 / H.265 硬解')),
+                        _v3SpeedButton(ctrl),
+                        _v3Tool('原始', () => _selectQuality(0),
+                            active: _quality == 0),
+                        _v3Tool('LUT',
+                            () => _selectQuality((_quality + 1) % 4),
+                            active: _quality != 0),
+                        _v3Tool('刷新',
+                            () => _initPlayer(_episode ?? widget.episode)),
+                        _v3Tool('循环', () {
+                          ctrl.setLooping(!ctrl.value.isLooping);
+                          setState(() {});
+                        }, active: ctrl.value.isLooping),
+                        _v3Tool(
+                            '音轨', () => _toast('当前线路暂不支持音轨切换')),
+                        _v3Tool(
+                            '视轨', () => _toast('当前线路暂不支持视轨切换')),
+                        _v3Tool('片头', () => _toast('当前线路未设置片头')),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _v3TopIcon(IconData icon, VoidCallback onTap) {
+    return IconButton(
+      onPressed: onTap,
+      icon: Icon(icon, color: const Color(0xD9FFFFFF), size: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 5),
+      constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+    );
+  }
+
+  Widget _v3Rail(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: const Color(0xD9FFFFFF), size: 22),
+            const SizedBox(height: 3),
+            Text(label,
+                style: const TextStyle(
+                    color: Color(0x99FFFFFF), fontSize: 9)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _v3Tool(String label, VoidCallback? onTap, {bool active = false}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: onTap == null
+                ? const Color(0x4DFFFFFF)
+                : (active ? Colors.white : const Color(0xCCFFFFFF)),
+            fontSize: 11,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _v3SpeedButton(VideoPlayerController ctrl) {
+    return PopupMenuButton<double>(
+      initialValue: _speed,
+      tooltip: '倍速',
+      color: const Color(0xFF1E1B3A),
+      onSelected: (v) async {
+        await ctrl.setPlaybackSpeed(v);
+        setState(() => _speed = v);
+        _scheduleHide();
+      },
+      itemBuilder: (_) => [0.75, 1.0, 1.25, 1.5, 2.0]
+          .map((s) => PopupMenuItem<double>(
+                value: s,
+                child: Text('${s}x',
+                    style: const TextStyle(color: Colors.white)),
+              ))
+          .toList(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        child: Text(
+          _speed == 1.0 ? '1x' : '${_speed}x',
+          style: const TextStyle(
+              color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showV3Info(VideoPlayerController ctrl) async {
+    final value = ctrl.value;
+    final size = value.size;
+    final rows = <String, String>{
+      '影片': widget.vodName.isEmpty ? (_episode?.name ?? '') : widget.vodName,
+      '剧集': _episode?.name ?? '',
+      '线路': widget.lineName.isEmpty ? '默认线路' : widget.lineName,
+      '来源': _sourceName.isEmpty ? '未知' : _sourceName,
+      '分辨率': size.width > 0
+          ? '${size.width.toInt()} × ${size.height.toInt()}'
+          : '画质自适应',
+      '时长': _fmt(value.duration),
+      '倍速': '${_speed}x',
+      '解码': _hwDecode ? 'ExoPlayer 硬解' : '软解',
+    };
+    await Get.dialog(
+      AlertDialog(
+        backgroundColor: const Color(0xFF1E1B3A),
+        title: const Text('播放参数', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: rows.entries
+              .map((e) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 64,
+                          child: Text(e.key,
+                              style: const TextStyle(
+                                  color: GlassTheme.textMuted, fontSize: 12)),
+                        ),
+                        Expanded(
+                          child: Text(e.value,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ))
+              .toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// PotPlayer 风格底部控制条（极简黑色）

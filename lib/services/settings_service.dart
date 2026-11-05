@@ -7,9 +7,11 @@ import 'package:path_provider/path_provider.dart';
 class SettingsService {
   static const String _fileName = 'settings.json';
 
-  /// 0 = 简洁版（PotPlayer 风格），1 = 哔哩哔哩风格（横屏 + 播放器内选集）
+  /// 0 = 简洁版（PotPlayer 风格），1 = 哔哩哔哩风格（横屏 + 播放器内选集），
+  /// 2 = 专业版（EXO 风格，顶部信息栏 + 右侧快捷栏 + 底部工具栏）
   static const int playerSimple = 0;
   static const int playerBili = 1;
+  static const int playerV3 = 2;
 
   /// 画质增强：0 标准、1 鲜艳、2 明亮、3 柔和
   static const List<String> qualityNames = ['标准', '鲜艳', '明亮', '柔和'];
