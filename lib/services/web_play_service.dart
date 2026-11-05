@@ -17,6 +17,12 @@ class WebPlayService {
   static final List<WebPlayApi> _apis = [];
   static bool _loaded = false;
 
+  /// 接口来源：remote = 仓库同步，builtin = 内置，user = 手动添加
+  static final Map<String, String> _origins = {};
+
+  /// 用户主动删除的接口 URL（仓库 / 内置同步时不再加回）
+  static final Set<String> _hidden = {};
+
   /// 内置接口种子版本：升级后自动补齐新增内置接口（用户删除后不会再次补回）
   static const int _seedVersion = 2;
   static int _seed = 0;
@@ -39,7 +45,7 @@ class WebPlayService {
     try {
       final file = await _file();
       if (await file.exists()) {
-        _apply(await file.readAsString());
+        _applyStored(await file.readAsString());
       }
     } catch (_) {}
     if (_apis.isEmpty) {
@@ -50,11 +56,14 @@ class WebPlayService {
       } catch (_) {}
       if (legacy != defaultUrl) {
         _apis.add(WebPlayApi(name: '网页播放', url: legacy));
+        _origins[legacy] = 'user';
       }
     }
     if (_seed < _seedVersion) {
       for (final api in builtins) {
-        if (!_apis.contains(api)) _apis.add(api);
+        if (_hidden.contains(api.url) || _apis.contains(api)) continue;
+        _apis.add(api);
+        _origins[api.url] = 'builtin';
       }
       _seed = _seedVersion;
       await _save();
@@ -70,12 +79,19 @@ class WebPlayService {
     if (!api.isValid) return;
     if (_apis.contains(api)) return;
     _apis.add(api);
+    _origins[api.url] = 'user';
+    _hidden.remove(api.url);
     await _save();
   }
 
   static Future<void> remove(WebPlayApi api) async {
     await _ensureLoaded();
     _apis.remove(api);
+    final origin = _origins.remove(api.url);
+    if (origin == 'remote' || origin == 'builtin') {
+      // 仓库 / 内置接口：记录隐藏，避免同步时又被加回
+      _hidden.add(api.url);
+    }
     await _save();
   }
 
@@ -83,12 +99,16 @@ class WebPlayService {
   static Future<void> restoreDefault() async {
     await _ensureLoaded();
     for (final api in builtins) {
-      if (!_apis.contains(api)) _apis.insert(0, api);
+      _hidden.remove(api.url);
+      if (!_apis.contains(api)) {
+        _apis.insert(0, api);
+        _origins[api.url] = 'builtin';
+      }
     }
     await _save();
   }
 
-  /// 从仓库 webplay.json 同步（多镜像 + 时间戳），与本地接口取并集
+  /// 从仓库 webplay.json 同步：新增 / 更新 / 删除实时生效
   static Future<int> sync() async {
     await _ensureLoaded();
     final dio = Dio(BaseOptions(
@@ -110,9 +130,9 @@ class WebPlayService {
         );
         final raw = res.data;
         if (raw == null || raw.trim().isEmpty) continue;
-        final added = _apply(raw);
+        final changed = _applyRemote(raw);
         await _save();
-        return added;
+        return changed;
       } catch (_) {}
     }
     return 0;
@@ -126,28 +146,105 @@ class WebPlayService {
         : '${api.url}$encoded';
   }
 
-  static int _apply(String raw) {
-    var added = 0;
+  /// 读取本地已保存配置
+  static void _applyStored(String raw) {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw.trim());
+    } catch (_) {
+      return;
+    }
+    _apis.clear();
+    _origins.clear();
+    _hidden.clear();
+    List<dynamic>? list;
+    if (decoded is List) {
+      list = decoded;
+    } else if (decoded is Map) {
+      if (decoded['seeded'] is num) {
+        _seed = (decoded['seeded'] as num).toInt();
+      }
+      final h = decoded['hidden'];
+      if (h is List) _hidden.addAll(h.map((e) => e.toString()));
+      for (final key in ['apis', 'interfaces', 'list', 'data']) {
+        if (decoded[key] is List) {
+          list = decoded[key] as List;
+          break;
+        }
+      }
+    }
+    for (final item in list ?? const []) {
+      final api = WebPlayApi.fromJson(item);
+      if (!api.isValid || _apis.contains(api)) continue;
+      _apis.add(api);
+      final origin = item is Map ? item['origin']?.toString() : null;
+      _origins[api.url] = origin ??
+          (builtins.contains(api) ? 'builtin' : 'user');
+    }
+  }
+
+  /// 应用仓库配置（返回变更条数）
+  static int _applyRemote(String raw) {
     dynamic decoded;
     try {
       decoded = jsonDecode(raw.trim());
     } catch (_) {
       return 0;
     }
-    final list = decoded is Map
-        ? (decoded['apis'] ?? decoded['interfaces'] ?? decoded['list'])
-        : decoded;
-    if (decoded is Map && decoded['seeded'] is int) {
-      _seed = decoded['seeded'] as int;
+    List<dynamic>? list;
+    if (decoded is List) {
+      list = decoded;
+    } else if (decoded is Map) {
+      if (decoded['seeded'] is num) {
+        _seed = (decoded['seeded'] as num).toInt();
+      }
+      for (final key in ['apis', 'interfaces', 'list', 'data']) {
+        if (decoded[key] is List) {
+          list = decoded[key] as List;
+          break;
+        }
+      }
     }
-    if (list is! List) return 0;
+    if (list == null) return 0;
+
+    final parsed = <WebPlayApi>[];
     for (final item in list) {
       final api = WebPlayApi.fromJson(item);
-      if (!api.isValid || _apis.contains(api)) continue;
-      _apis.add(api);
-      added++;
+      if (!api.isValid) continue;
+      if (parsed.any((e) => e.url == api.url)) continue;
+      parsed.add(api);
     }
-    return added;
+    if (parsed.isEmpty) return 0;
+
+    final remoteUrls = <String>{};
+    var changed = 0;
+    for (final api in parsed) {
+      remoteUrls.add(api.url);
+      if (_hidden.contains(api.url)) continue;
+      final index = _apis.indexWhere((e) => e.url == api.url);
+      if (index >= 0) {
+        _origins[api.url] = 'remote';
+        if (_apis[index].name != api.name) {
+          _apis[index] = api;
+          changed++;
+        }
+      } else {
+        _apis.add(api);
+        _origins[api.url] = 'remote';
+        changed++;
+      }
+    }
+    // 仓库中已删除的接口同步移除（内置 / 手动添加的保持不变）
+    final stale = _apis
+        .where((e) =>
+            _origins[e.url] == 'remote' && !remoteUrls.contains(e.url))
+        .toList();
+    for (final api in stale) {
+      _apis.remove(api);
+      _origins.remove(api.url);
+      changed++;
+    }
+    return changed;
   }
 
   static Future<void> _save() async {
@@ -155,7 +252,13 @@ class WebPlayService {
       final file = await _file();
       await file.writeAsString(jsonEncode({
         'seeded': _seed,
-        'apis': _apis.map((e) => e.toJson()).toList(),
+        'apis': _apis
+            .map((e) => {
+                  ...e.toJson(),
+                  'origin': _origins[e.url] ?? 'user',
+                })
+            .toList(),
+        'hidden': _hidden.toList(),
       }));
     } catch (_) {}
   }

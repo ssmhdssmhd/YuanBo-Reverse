@@ -13,8 +13,10 @@ import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/pages/update_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/services/history_service.dart';
+import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/source_service.dart';
+import 'package:yuanbo/services/web_play_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
@@ -52,6 +54,9 @@ class HomeController extends GetxController {
     await loadMore();
     // 启动后静默同步仓库配置，用户无需手动维护
     syncSources();
+    // 解析接口 / 网页播放接口同样随仓库实时生效，无需重新编译安装
+    ParseService.sync();
+    WebPlayService.sync();
   }
 
   void switchSource(VideoSource s) {

@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # 配置文件由 App 运行时直接拉取，修改后无需编译安装包
+    paths-ignore:
+      - '*.json'
+      - '*.txt'
+      - 'README.md'
   workflow_dispatch:
 
 permissions:

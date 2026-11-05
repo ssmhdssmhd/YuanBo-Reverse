@@ -36,7 +36,7 @@ class _ParseApiPageState extends State<ParseApiPage> {
     if (!mounted) return;
     setState(() => _syncing = false);
     if (silent) return;
-    _toast(added > 0 ? '已从仓库同步 $added 个解析接口' : '仓库配置无新增接口');
+    _toast(added > 0 ? '已同步仓库配置：$added 项变更' : '仓库配置已是最新');
   }
 
   void _toast(String msg) {

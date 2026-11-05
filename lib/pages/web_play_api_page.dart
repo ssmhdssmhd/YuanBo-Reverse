@@ -23,19 +23,29 @@ class _WebPlayApiPageState extends State<WebPlayApiPage> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool auto = true}) async {
     await WebPlayService.load();
     if (mounted) setState(() => _apis = WebPlayService.apis);
+    if (auto) _silentSync();
+  }
+
+  /// 仓库 webplay.json 修改后，打开页面即自动拉取，无需重新编译
+  Future<void> _silentSync() async {
+    if (_syncing) return;
+    if (mounted) setState(() => _syncing = true);
+    await WebPlayService.sync();
+    await _load(auto: false);
+    if (mounted) setState(() => _syncing = false);
   }
 
   Future<void> _sync() async {
     if (_syncing) return;
     setState(() => _syncing = true);
-    final added = await WebPlayService.sync();
-    await _load();
+    final changed = await WebPlayService.sync();
+    await _load(auto: false);
     if (!mounted) return;
     setState(() => _syncing = false);
-    _toast(added > 0 ? '已同步 $added 个接口' : '已是最新，无新增接口');
+    _toast(changed > 0 ? '已同步仓库配置：$changed 项变更' : '仓库配置已是最新');
   }
 
   void _toast(String text) {

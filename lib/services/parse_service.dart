@@ -15,6 +15,12 @@ class ParseService {
   static bool _loaded = false;
   static int _timeout = 10;
 
+  /// 接口来源：remote = 仓库同步，user = 手动添加
+  static final Map<String, String> _origins = {};
+
+  /// 用户主动删除的仓库接口 URL，同步时不再重复加回
+  static final Set<String> _hidden = {};
+
   static List<ParseApi> get apis => List.unmodifiable(_apis);
   static int get count => _apis.length;
   static int get timeout => _timeout;
@@ -24,8 +30,38 @@ class ParseService {
     _loaded = true;
     try {
       final file = await _file();
-      if (await file.exists()) {
-        _apply(await file.readAsString(), merge: false);
+      if (!await file.exists()) return;
+      final raw = await file.readAsString();
+      dynamic data;
+      try {
+        data = jsonDecode(raw);
+      } catch (_) {
+        return;
+      }
+      _apis.clear();
+      _origins.clear();
+      _hidden.clear();
+      List<dynamic>? list;
+      if (data is List) {
+        list = data;
+      } else if (data is Map) {
+        final t = data['timeout'];
+        if (t is num && t > 0) _timeout = t.toInt().clamp(5, 30);
+        final h = data['hidden'];
+        if (h is List) _hidden.addAll(h.map((e) => e.toString()));
+        for (final key in ['apis', 'api', 'list', 'data']) {
+          if (data[key] is List) {
+            list = data[key] as List;
+            break;
+          }
+        }
+      }
+      for (final item in list ?? const []) {
+        final api = ParseApi.fromJson(item);
+        if (!api.isValid || _apis.contains(api)) continue;
+        _apis.add(api);
+        _origins[api.url] =
+            item is Map ? (item['origin']?.toString() ?? 'user') : 'user';
       }
     } catch (_) {}
   }
@@ -39,16 +75,22 @@ class ParseService {
     if (!api.isValid) return;
     if (_apis.contains(api)) return;
     _apis.add(api);
+    _origins[api.url] = 'user';
+    _hidden.remove(api.url);
     await _save();
   }
 
   static Future<void> remove(ParseApi api) async {
     await _ensureLoaded();
     _apis.remove(api);
+    if (_origins.remove(api.url) == 'remote') {
+      // 删除的是仓库同步来的接口：记入隐藏列表，仓库同步不覆盖用户意图
+      _hidden.add(api.url);
+    }
     await _save();
   }
 
-  /// 从仓库 jiexi.json 同步（多镜像 + 时间戳），与本地接口取并集
+  /// 从仓库 jiexi.json 同步：仓库为权威配置，新增 / 更新 / 删除都会实时生效
   static Future<int> sync() async {
     await _ensureLoaded();
     final dio = Dio(BaseOptions(
@@ -70,12 +112,77 @@ class ParseService {
         );
         final raw = res.data;
         if (raw == null || raw.trim().isEmpty) continue;
-        final added = _apply(raw, merge: true);
+        final changed = _applyRemote(raw);
         await _save();
-        return added;
+        return changed;
       } catch (_) {}
     }
     return 0;
+  }
+
+  /// 应用仓库配置（返回变更条数）
+  static int _applyRemote(String raw) {
+    var text = raw.trim();
+    if (text.startsWith('\uFEFF')) text = text.substring(1);
+    dynamic data;
+    try {
+      data = jsonDecode(text);
+    } catch (_) {
+      return 0;
+    }
+    List<dynamic>? list;
+    if (data is List) {
+      list = data;
+    } else if (data is Map) {
+      final t = data['timeout'];
+      if (t is num && t > 0) _timeout = t.toInt().clamp(5, 30);
+      for (final key in ['apis', 'api', 'list', 'data']) {
+        if (data[key] is List) {
+          list = data[key] as List;
+          break;
+        }
+      }
+    }
+    if (list == null) return 0;
+
+    final parsed = <ParseApi>[];
+    for (final item in list) {
+      final api = ParseApi.fromJson(item);
+      if (!api.isValid) continue;
+      if (parsed.any((e) => e.url == api.url)) continue;
+      parsed.add(api);
+    }
+    if (parsed.isEmpty) return 0;
+
+    final remoteUrls = <String>{};
+    var changed = 0;
+    for (final api in parsed) {
+      remoteUrls.add(api.url);
+      if (_hidden.contains(api.url)) continue;
+      final index = _apis.indexWhere((e) => e.url == api.url);
+      if (index >= 0) {
+        _origins[api.url] = 'remote';
+        if (_apis[index].name != api.name) {
+          _apis[index] = api;
+          changed++;
+        }
+      } else {
+        _apis.add(api);
+        _origins[api.url] = 'remote';
+        changed++;
+      }
+    }
+    // 仓库中已删除的接口同步移除（仅限仓库来源，不影响手动添加）
+    final stale = _apis
+        .where((e) =>
+            _origins[e.url] == 'remote' && !remoteUrls.contains(e.url))
+        .toList();
+    for (final api in stale) {
+      _apis.remove(api);
+      _origins.remove(api.url);
+      changed++;
+    }
+    return changed;
   }
 
   /// 平台视频页是否需要解析
@@ -134,46 +241,6 @@ class ParseService {
       return apiUrl.replaceAll('{url}', encoded);
     }
     return '$apiUrl$encoded';
-  }
-
-  /// 解析 jiexi.json（返回新增条数）
-  static int _apply(String raw, {required bool merge}) {
-    var text = raw.trim();
-    if (text.startsWith('\uFEFF')) text = text.substring(1);
-    dynamic data;
-    try {
-      data = jsonDecode(text);
-    } catch (_) {
-      return 0;
-    }
-    List<dynamic>? list;
-    if (data is List) {
-      list = data;
-    } else if (data is Map) {
-      final t = data['timeout'];
-      if (t is int && t > 0) _timeout = t.clamp(5, 30).toInt();
-      for (final key in ['apis', 'api', 'list', 'data']) {
-        if (data[key] is List) {
-          list = data[key] as List;
-          break;
-        }
-      }
-    }
-    if (list == null) return 0;
-
-    final parsed = list
-        .map(ParseApi.fromJson)
-        .where((e) => e.isValid)
-        .toList();
-    if (!merge) _apis.clear();
-    var added = 0;
-    for (final api in parsed) {
-      if (!_apis.contains(api)) {
-        _apis.add(api);
-        added++;
-      }
-    }
-    return added;
   }
 
   static String? _extractUrl(dynamic data, [int depth = 0]) {
@@ -237,7 +304,13 @@ class ParseService {
       final file = await _file();
       await file.writeAsString(jsonEncode({
         'timeout': _timeout,
-        'apis': _apis.map((e) => e.toJson()).toList(),
+        'apis': _apis
+            .map((e) => {
+                  ...e.toJson(),
+                  'origin': _origins[e.url] ?? 'user',
+                })
+            .toList(),
+        'hidden': _hidden.toList(),
       }));
     } catch (_) {}
   }
