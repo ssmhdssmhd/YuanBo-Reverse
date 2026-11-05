@@ -13,12 +13,14 @@ import 'package:yuanbo/widgets/glass_card.dart';
 class _SearchHit {
   final VodInfo vod;
   final VideoSource source;
-  final List<String> sourceNames;
 
-  _SearchHit(this.vod, this.source, this.sourceNames);
+  _SearchHit(this.vod, this.source);
+
+  String get key => '${source.api}#${vod.vodId}#${vod.vodName}';
 }
 
-/// 全站搜索：同时搜索所有资源站，点击结果直接进入详情/播放
+/// 全站搜索：不再跨源合并同名结果，每条结果严格绑定自己的资源站，
+/// 避免详情页按 ID 到其它资源站取数据而"乱跳"到无关影片。
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
 
@@ -73,7 +75,8 @@ class _SearchPageState extends State<SearchPage> {
       _progress = '正在搜索 0/${sources.length} 个资源站…';
     });
 
-    final groups = <String, _SearchHit>{};
+    final hits = <_SearchHit>[];
+    final seen = <String>{};
     var done = 0;
     await Future.wait(sources.map((s) async {
       final api = ApiService()..setSource(s);
@@ -81,12 +84,8 @@ class _SearchPageState extends State<SearchPage> {
       for (final vod in res.data ?? const <VodInfo>[]) {
         final name = vod.vodName.trim();
         if (name.isEmpty) continue;
-        final hit = groups[name];
-        if (hit == null) {
-          groups[name] = _SearchHit(vod, s, [s.name]);
-        } else if (!hit.sourceNames.contains(s.name)) {
-          hit.sourceNames.add(s.name);
-        }
+        final hit = _SearchHit(vod, s);
+        if (seen.add(hit.key)) hits.add(hit);
       }
       done++;
       if (mounted) {
@@ -98,19 +97,14 @@ class _SearchPageState extends State<SearchPage> {
     if (!mounted) return;
     setState(() {
       _loading = false;
-      _hits = groups.values.toList();
+      _hits = hits;
       _emptyTip = _hits.isEmpty ? '未找到「$key」，换个关键词试试' : '';
     });
   }
 
   void _openDetail(_SearchHit hit) {
-    if (Get.isRegistered<HomeController>()) {
-      final c = Get.find<HomeController>();
-      if (c.currentSource.value.api != hit.source.api) {
-        c.switchSource(hit.source);
-      }
-    }
-    Get.to(() => DetailPage(vod: hit.vod));
+    // 详情页显式绑定该结果的资源站，不受首页当前源影响
+    Get.to(() => DetailPage(vod: hit.vod, source: hit.source));
   }
 
   @override
@@ -283,9 +277,8 @@ class _SearchPageState extends State<SearchPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '来源：${hit.sourceNames.join(' / ')}'
-                        '${hit.sourceNames.length > 1 ? '（${hit.sourceNames.length} 个源可用）' : ''}',
-                        maxLines: 2,
+                        '来源：${hit.source.name}',
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             color: GlassTheme.textSecondary, fontSize: 11),

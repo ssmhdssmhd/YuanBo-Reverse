@@ -6,12 +6,18 @@ import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
+import 'package:yuanbo/utils/constants.dart';
 import 'package:yuanbo/utils/text_utils.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
 
 class DetailPage extends StatefulWidget {
   final VodInfo vod;
-  const DetailPage({super.key, required this.vod});
+
+  /// 结果所属资源站；为空时使用首页当前资源站。
+  /// 必须显式绑定，避免不同资源站同 ID 指向不同影片导致详情错乱。
+  final VideoSource? source;
+
+  const DetailPage({super.key, required this.vod, this.source});
 
   @override
   State<DetailPage> createState() => _DetailPageState();
@@ -25,17 +31,42 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void initState() {
     super.initState();
-    if (Get.isRegistered<HomeController>()) {
-      api.setSource(Get.find<HomeController>().currentSource.value);
-    }
+    final fallback = Get.isRegistered<HomeController>()
+        ? Get.find<HomeController>().currentSource.value
+        : AppConstants.defaultSources.first;
+    api.setSource(widget.source ?? fallback);
     _loadDetail();
   }
 
+  /// 归一化片名，用于校验详情接口返回的是不是同一部影片
+  static String _normalize(String name) {
+    return name
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\s《》〈〉:：·,，.。!！?？、\-_（）()]'), '');
+  }
+
   Future<void> _loadDetail() async {
-    final d = await api.getVodDetail(widget.vod.vodId);
+    final expected = _normalize(widget.vod.vodName);
+    var detail = await api.getVodDetail(widget.vod.vodId);
+    if (detail != null && _normalize(detail.vodName) != expected) {
+      // 该资源站没有此 ID，或同 ID 指向了别的影片：按片名重新精确匹配
+      final res = await api.getVodList(wd: widget.vod.vodName, page: 1);
+      VodInfo? matched;
+      for (final item in res.data ?? const <VodInfo>[]) {
+        if (_normalize(item.vodName) == expected) {
+          matched = item;
+          break;
+        }
+      }
+      detail = matched;
+    }
+    if (detail == null) {
+      // 无法对齐时保留搜索结果的原始信息，绝不展示其它影片
+      detail = widget.vod;
+    }
     if (mounted) {
       setState(() {
-        _detail = d ?? widget.vod;
+        _detail = detail;
         _loading = false;
       });
     }
