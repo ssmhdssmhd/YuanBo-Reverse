@@ -1,14 +1,18 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/pages/detail_page.dart';
+import 'package:yuanbo/pages/history_page.dart';
 import 'package:yuanbo/pages/player_source_page.dart';
 import 'package:yuanbo/pages/search_page.dart';
 import 'package:yuanbo/pages/settings_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/pages/update_page.dart';
 import 'package:yuanbo/services/api_service.dart';
+import 'package:yuanbo/services/history_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/source_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
@@ -410,7 +414,9 @@ class HomePage extends StatelessWidget {
             final vod = c.vodList[i];
             return VodCard(
               vod: vod,
-              onTap: () => Get.to(() => DetailPage(vod: vod)),
+              onTap: () => Get.to(
+                () => DetailPage(vod: vod, source: c.currentSource.value),
+              ),
             );
           },
         ),
@@ -420,70 +426,281 @@ class HomePage extends StatelessWidget {
 
   Widget _buildDrawer(BuildContext context, HomeController c) {
     return Drawer(
-      backgroundColor: const Color(0xFF1A1730),
-      child: ListView(
+      width: 302,
+      elevation: 0,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.horizontal(right: Radius.circular(28)),
+      ),
+      child: ClipRRect(
+        borderRadius:
+            const BorderRadius.horizontal(right: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withValues(alpha: 0.13),
+                  const Color(0xEE171130),
+                  const Color(0xF20B0919),
+                ],
+                stops: const [0.0, 0.42, 1.0],
+              ),
+              border: Border(
+                right: BorderSide(color: Colors.white.withValues(alpha: 0.16)),
+              ),
+            ),
+            child: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _drawerHeader(),
+                  const SizedBox(height: 6),
+                  _drawerSectionTitle('常用'),
+                  _drawerItem(
+                      Icons.settings_rounded, '设置', const Color(0xFF8B9DFF), () {
+                    Get.back();
+                    Get.to(() => const SettingsPage());
+                  }),
+                  _drawerItem(Icons.history_rounded, '观看历史',
+                      const Color(0xFF5EF2FF), () {
+                    Get.back();
+                    Get.to(() => const HistoryPage());
+                  }, badge: HistoryService.count),
+                  _drawerItem(
+                      Icons.play_circle_outline_rounded,
+                      '播放器源',
+                      const Color(0xFFB18CFF),
+                      () {
+                    Get.back();
+                    Get.to(() => const PlayerSourcePage());
+                  }),
+                  _drawerItem(
+                      Icons.folder_copy_rounded, '视频源管理', const Color(0xFF7CE7B0),
+                      () {
+                    Get.back();
+                    Get.to(() => const SourcePage());
+                  }),
+                  const SizedBox(height: 8),
+                  _drawerSectionTitle('更多'),
+                  _drawerItem(
+                      Icons.ios_share_rounded, '分享本 App', const Color(0xFFFFC46B),
+                      () {
+                    Get.back();
+                    Share.share(
+                      '${AppConstants.appName} - 极致画质影视播放器\n下载地址：https://github.com/${AppConstants.githubRepo}',
+                      subject: AppConstants.appName,
+                    );
+                  }),
+                  _drawerItem(
+                      Icons.system_update_rounded,
+                      '检查更新',
+                      const Color(0xFFFF8FA3),
+                      () {
+                    Get.back();
+                    Get.to(() => const UpdatePage());
+                  }),
+                  const Spacer(),
+                  Obx(() => Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                        child: GlassContainer(
+                          borderRadius: 18,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: GlassTheme.accent,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                        color: GlassTheme.accent,
+                                        blurRadius: 8),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('当前资源站',
+                                        style: TextStyle(
+                                            color: GlassTheme.textMuted,
+                                            fontSize: 10)),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      c.currentSource.value.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.bolt_rounded,
+                                  color: GlassTheme.accent, size: 18),
+                            ],
+                          ),
+                        ),
+                      )),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _drawerHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 26, 20, 12),
+      child: Row(
         children: [
           Container(
-            height: 140,
-            decoration: const BoxDecoration(gradient: GlassTheme.backgroundGradient),
-            alignment: Alignment.center,
-            child: const Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(17),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF7C5CFF), Color(0xFF5EF2FF)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                    color: GlassTheme.primary.withValues(alpha: 0.45),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8)),
+              ],
+            ),
+            child: const Icon(Icons.play_arrow_rounded,
+                color: Colors.white, size: 30),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.play_circle_fill, size: 48, color: GlassTheme.accent),
-                SizedBox(height: 8),
                 Text(
                   AppConstants.appName,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '液态玻璃 · 多源聚合播放',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    fontSize: 11,
+                    letterSpacing: 0.5,
                   ),
                 ),
               ],
             ),
           ),
-          _drawerItem(Icons.settings, '设置', () {
-            Get.back();
-            Get.to(() => const SettingsPage());
-          }),
-          _drawerItem(Icons.play_circle_outline, '播放器源', () {
-            Get.back();
-            Get.to(() => const PlayerSourcePage());
-          }),
-          _drawerItem(Icons.folder_copy, '视频源管理', () {
-            Get.back();
-            Get.to(() => const SourcePage());
-          }),
-          _drawerItem(Icons.share, '分享本 App', () {
-            Get.back();
-            Share.share(
-              '${AppConstants.appName} - 极致画质影视播放器\n下载地址：https://github.com/${AppConstants.githubRepo}',
-              subject: AppConstants.appName,
-            );
-          }),
-          _drawerItem(Icons.system_update, '检查更新', () {
-            Get.back();
-            Get.to(() => const UpdatePage());
-          }),
-          const Divider(color: GlassTheme.glassBorder, height: 1),
-          Obx(() => _drawerItem(Icons.source, '当前源：${c.currentSource.value.name}', null)),
         ],
       ),
     );
   }
 
-  Widget _drawerItem(IconData icon, String label, VoidCallback? onTap) {
-    return ListTile(
-      leading: Icon(icon, color: onTap == null ? GlassTheme.textMuted : GlassTheme.accent),
-      title: Text(
-        label,
+  Widget _drawerSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(26, 10, 20, 6),
+      child: Text(
+        title,
         style: TextStyle(
-          color: onTap == null ? GlassTheme.textMuted : Colors.white,
-          fontSize: 15,
+          color: Colors.white.withValues(alpha: 0.38),
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 2,
         ),
       ),
-      onTap: onTap,
+    );
+  }
+
+  Widget _drawerItem(IconData icon, String label, Color tint,
+      VoidCallback? onTap, {int badge = 0, Widget? trailing}) {
+    final enabled = onTap != null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            child: Row(
+              children: [
+                Container(
+                  width: 37,
+                  height: 37,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        tint.withValues(alpha: enabled ? 0.30 : 0.12),
+                        tint.withValues(alpha: enabled ? 0.10 : 0.04),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: tint.withValues(alpha: enabled ? 0.42 : 0.16),
+                    ),
+                  ),
+                  child: Icon(icon,
+                      size: 19,
+                      color: enabled ? tint : GlassTheme.textMuted),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: enabled ? Colors.white : GlassTheme.textMuted,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (badge > 0)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    margin: const EdgeInsets.only(right: 6),
+                    decoration: BoxDecoration(
+                      color: GlassTheme.accent.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('$badge',
+                        style: const TextStyle(
+                            color: GlassTheme.accent, fontSize: 10)),
+                  ),
+                trailing ??
+                    Icon(Icons.chevron_right_rounded,
+                        size: 18, color: Colors.white.withValues(alpha: 0.22)),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

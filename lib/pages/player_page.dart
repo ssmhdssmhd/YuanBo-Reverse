@@ -9,11 +9,13 @@ import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
+import 'package:yuanbo/models/watch_history.dart';
 import 'package:yuanbo/pages/cast_page.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/parse_api_page.dart';
 import 'package:yuanbo/pages/web_player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
+import 'package:yuanbo/services/history_service.dart';
 import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/system_level_service.dart';
@@ -31,6 +33,14 @@ class PlayerPage extends StatefulWidget {
   final List<PlayEpisode> episodes;
   final String lineName;
 
+  /// 观看历史 / 续播所需信息
+  final int vodId;
+  final String vodPic;
+  final VideoSource? source;
+
+  /// 续播起播位置（毫秒）
+  final int startPositionMs;
+
   const PlayerPage({
     super.key,
     required this.episode,
@@ -38,6 +48,10 @@ class PlayerPage extends StatefulWidget {
     this.episodeIndex = 0,
     this.episodes = const [],
     this.lineName = '',
+    this.vodId = 0,
+    this.vodPic = '',
+    this.source,
+    this.startPositionMs = 0,
   });
 
   @override
@@ -58,6 +72,10 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 是否已请求屏幕常亮（播放中保持，暂停 / 退出恢复）
   bool _keepScreenOn = false;
+
+  /// 观看历史：续播位置是否已应用 / 上次写入时间
+  bool _resumeApplied = false;
+  int _lastHistorySave = 0;
 
   // 亮度 / 音量手势（播放器 2）
   double _brightness = -1;
@@ -114,8 +132,8 @@ class _PlayerPageState extends State<PlayerPage> {
         widget.episodes.isEmpty ? [widget.episode] : widget.episodes;
     _episodeIndex = widget.episodeIndex;
     final c = Get.isRegistered<HomeController>() ? Get.find<HomeController>() : null;
-    _sourceName = c?.currentSource.value.name ?? '';
-    _sourceApi = c?.currentSource.value.api ?? '';
+    _sourceName = widget.source?.name ?? c?.currentSource.value.name ?? '';
+    _sourceApi = widget.source?.api ?? c?.currentSource.value.api ?? '';
     _init();
   }
 
@@ -138,6 +156,8 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> _initPlayer(PlayEpisode ep) async {
+    // 切换集数前先保存上一集的进度
+    _recordHistory();
     if (mounted) {
       setState(() {
         _episode = ep;
@@ -193,10 +213,17 @@ class _PlayerPageState extends State<PlayerPage> {
         return;
       }
       await ctrl.setPlaybackSpeed(_speed);
+      if (!_resumeApplied &&
+          widget.startPositionMs > 0 &&
+          ep.url == widget.episode.url) {
+        await ctrl.seekTo(Duration(milliseconds: widget.startPositionMs));
+        _resumeApplied = true;
+      }
       _videoCtrl = ctrl;
       ctrl.addListener(_onTick);
       await ctrl.play();
       _setKeepScreenOn(true);
+      _recordHistory();
       if (!mounted) return;
       setState(() {
         _ready = true;
@@ -216,7 +243,33 @@ class _PlayerPageState extends State<PlayerPage> {
       _hideTimer?.cancel();
       if (!_controlsVisible) _controlsVisible = true;
     }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (playing && now - _lastHistorySave > 15000) {
+      _lastHistorySave = now;
+      _recordHistory();
+    }
     setState(() {});
+  }
+
+  /// 写入观看历史（资源站 + 影片维度，位置随播放进度更新）
+  void _recordHistory() {
+    final ep = _episode;
+    if (ep == null || widget.vodName.isEmpty) return;
+    final ctrl = _videoCtrl;
+    HistoryService.save(WatchHistory(
+      vodId: widget.vodId,
+      vodName: widget.vodName,
+      vodPic: widget.vodPic,
+      sourceApi: _sourceApi,
+      sourceName: _sourceName,
+      lineName: widget.lineName,
+      episodeName: ep.name,
+      episodeIndex: _episodeIndex,
+      episodes: _episodes,
+      positionMs: ctrl?.value.position.inMilliseconds ?? 0,
+      durationMs: ctrl?.value.duration.inMilliseconds ?? 0,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    ));
   }
 
   void _setKeepScreenOn(bool value) {
@@ -934,6 +987,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _hintTimer?.cancel();
     _hudTimer?.cancel();
     _lockTipTimer?.cancel();
+    _recordHistory();
     _disposePreview();
     SystemLevelService.setPlaying(false);
     SystemLevelService.setKeepScreenOn(false);

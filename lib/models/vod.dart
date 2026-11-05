@@ -126,6 +126,13 @@ class PlayEpisode {
   final String url;
 
   const PlayEpisode({required this.name, required this.url});
+
+  factory PlayEpisode.fromJson(Map<String, dynamic> json) => PlayEpisode(
+        name: (json['name'] ?? '').toString(),
+        url: (json['url'] ?? '').toString(),
+      );
+
+  Map<String, dynamic> toJson() => {'name': name, 'url': url};
 }
 
 /// 分类

@@ -280,6 +280,9 @@ class _DetailPageState extends State<DetailPage> {
                             episodes: line.episodes,
                             lineName: line.name,
                             vodName: vod.vodName,
+                            vodId: vod.vodId,
+                            vodPic: vod.vodPic,
+                            source: widget.source,
                             episodeIndex: i,
                           )),
                     );
