@@ -24,6 +24,8 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   WebPlayApi? _api;
   bool _loading = true;
   String? _error;
+  bool _fallbacking = false;
+  final Set<String> _tried = {};
 
   @override
   void initState() {
@@ -43,9 +45,12 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
 
   Future<void> _init() async {
     await WebPlayService.load();
-    final list = WebPlayService.apis;
-    final api = list.isNotEmpty ? list.first : WebPlayService.fallback;
+    // 每次进入都拉取最新仓库配置，保证接口列表完整、默认接口可用
+    try {
+      await WebPlayService.sync();
+    } catch (_) {}
     if (!mounted) return;
+    final api = WebPlayService.defaultApi ?? WebPlayService.fallback;
     setState(() => _api = api);
     _load(api);
   }
@@ -66,7 +71,12 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
             }
           },
           onPageFinished: (_) {
-            if (mounted) setState(() => _loading = false);
+            if (!mounted) return;
+            setState(() => _loading = false);
+            // 记住当前可用接口，下次优先使用
+            if (_error == null && _api?.url == api.url) {
+              WebPlayService.setPreferred(api.url);
+            }
           },
           onWebResourceError: (error) {
             if ((error.isForMainFrame ?? true) && mounted) {
@@ -74,6 +84,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
                 _loading = false;
                 _error = '页面加载失败：${error.description}';
               });
+              _autoFallback();
             }
           },
         ),
@@ -85,6 +96,40 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
       _loading = true;
       _error = null;
     });
+  }
+
+  /// 当前接口加载失败时，自动尝试列表中的下一个接口
+  Future<void> _autoFallback() async {
+    if (_fallbacking) return;
+    final current = _api;
+    final apis = WebPlayService.apis;
+    if (current == null || apis.length < 2) return;
+    _tried.add(current.url);
+    if (_tried.length >= apis.length) return;
+    final index = apis.indexWhere((e) => e.url == current.url);
+    for (var step = 1; step <= apis.length; step++) {
+      final next = apis[(index + step) % apis.length];
+      if (_tried.contains(next.url)) continue;
+      _fallbacking = true;
+      _toast('「${current.name}」不可用，自动切换：${next.name}');
+      await Future.delayed(const Duration(milliseconds: 450));
+      _fallbacking = false;
+      if (!mounted) return;
+      _load(next);
+      return;
+    }
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF2A2648),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<void> _switchApi(WebPlayApi api) async {
@@ -110,6 +155,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   }
 
   void _reload() {
+    _tried.clear();
     _controller?.reload();
     setState(() {
       _loading = true;
@@ -117,53 +163,75 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
     });
   }
 
-  Future<void> _pickApi(List<WebPlayApi> apis) async {
+  Future<void> _pickApi() async {
+    // 每次打开都读取最新列表，避免使用页面初始化时的旧数据
+    final apis = WebPlayService.apis;
+    if (apis.isEmpty) return;
     final selected = await showModalBottomSheet<WebPlayApi>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF1B1735),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text('切换网页播放接口',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold)),
-            ),
-            ...apis.map((api) => ListTile(
-                  onTap: () => Navigator.of(ctx).pop(api),
-                  leading: Icon(
-                    Icons.public,
-                    color: api == _api ? GlassTheme.accent : Colors.white54,
-                  ),
-                  title: Text(
-                    api.name,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
-                  ),
-                  subtitle: Text(
-                    api.url,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: GlassTheme.textMuted, fontSize: 11),
-                  ),
-                  trailing: api == _api
-                      ? const Icon(Icons.check_circle,
-                          color: GlassTheme.accent, size: 18)
-                      : null,
-                )),
-            const SizedBox(height: 8),
-          ],
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.72,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text('切换网页播放接口',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.only(bottom: 8),
+                  children: [
+                    ...apis.map((api) => ListTile(
+                          onTap: () => Navigator.of(ctx).pop(api),
+                          leading: Icon(
+                            Icons.public,
+                            color: api == _api
+                                ? GlassTheme.accent
+                                : Colors.white54,
+                          ),
+                          title: Text(
+                            api.name,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 14),
+                          ),
+                          subtitle: Text(
+                            api.url,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: GlassTheme.textMuted, fontSize: 11),
+                          ),
+                          trailing: api == _api
+                              ? const Icon(Icons.check_circle,
+                                  color: GlassTheme.accent, size: 18)
+                              : null,
+                        )),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
-    if (selected != null) await _switchApi(selected);
+    if (selected != null) {
+      _tried.clear();
+      await _switchApi(selected);
+    }
   }
 
   Widget _barIcon(IconData icon, String tip, VoidCallback onTap,
@@ -271,7 +339,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
                 ),
                 if (apis.length > 1)
                   _barIcon(Icons.swap_horiz_rounded, '切换接口',
-                      () => _pickApi(apis),
+                      () => _pickApi(),
                       accent: true),
                 _barIcon(Icons.refresh_rounded, '重新加载', _reload),
                 _barIcon(Icons.open_in_new_rounded, '浏览器打开', _openInBrowser),
@@ -335,6 +403,11 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
                               FilledButton(
                                 onPressed: _reload,
                                 child: const Text('重试'),
+                              ),
+                              const SizedBox(width: 12),
+                              OutlinedButton(
+                                onPressed: _pickApi,
+                                child: const Text('切换接口'),
                               ),
                               const SizedBox(width: 12),
                               OutlinedButton(

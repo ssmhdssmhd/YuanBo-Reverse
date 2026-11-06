@@ -23,6 +23,16 @@ class WebPlayService {
   /// 用户主动删除的接口 URL（仓库 / 内置同步时不再加回）
   static final Set<String> _hidden = {};
 
+  /// 上次播放成功的接口，避免每次都从失效的默认接口开始
+  static String _preferred = '';
+  static String get preferredUrl => _preferred;
+
+  static Future<void> setPreferred(String url) async {
+    if (url.isEmpty || _preferred == url) return;
+    _preferred = url;
+    await _save();
+  }
+
   /// 内置接口种子版本：升级后自动补齐新增内置接口（用户删除后不会再次补回）
   static const int _seedVersion = 2;
   static int _seed = 0;
@@ -109,6 +119,17 @@ class WebPlayService {
   }
 
   /// 从仓库 webplay.json 同步：新增 / 更新 / 删除实时生效
+  /// 默认接口：优先上次播放成功的接口，其次列表第一个
+  static WebPlayApi? get defaultApi {
+    if (_apis.isEmpty) return null;
+    if (_preferred.isNotEmpty) {
+      for (final api in _apis) {
+        if (api.url == _preferred) return api;
+      }
+    }
+    return _apis.first;
+  }
+
   static Future<int> sync() async {
     await _ensureLoaded();
     final dio = Dio(BaseOptions(
@@ -164,6 +185,8 @@ class WebPlayService {
       if (decoded['seeded'] is num) {
         _seed = (decoded['seeded'] as num).toInt();
       }
+      final p = decoded['preferred'];
+      if (p is String) _preferred = p;
       final h = decoded['hidden'];
       if (h is List) _hidden.addAll(h.map((e) => e.toString()));
       for (final key in ['apis', 'interfaces', 'list', 'data']) {
@@ -252,6 +275,7 @@ class WebPlayService {
       final file = await _file();
       await file.writeAsString(jsonEncode({
         'seeded': _seed,
+        'preferred': _preferred,
         'apis': _apis
             .map((e) => {
                   ...e.toJson(),

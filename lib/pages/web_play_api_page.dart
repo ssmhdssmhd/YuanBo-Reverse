@@ -164,7 +164,8 @@ class _WebPlayApiPageState extends State<WebPlayApiPage> {
                 padding: const EdgeInsets.all(14),
                 child: const Text(
                   '网页播放会在 App 内直接加载接口页面，不跳转浏览器。'
-                  '播放器识别到平台视频且 JSON 解析失败时，会自动调用这里的第一个接口。\n'
+                  '播放器识别到平台视频且 JSON 解析失败时，会自动调用这里的接口；'
+                  '优先使用上次播放成功的接口，加载失败会自动切换下一个。\n'
                   '支持仓库 webplay.json 同步，也可在下方手动添加、左滑删除。',
                   style: TextStyle(
                       color: GlassTheme.textSecondary, fontSize: 12, height: 1.6),
