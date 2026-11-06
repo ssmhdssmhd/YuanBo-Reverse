@@ -52,11 +52,15 @@ class HomeController extends GetxController {
     api.setSource(currentSource.value);
     await loadClasses();
     await loadMore();
-    // 启动后静默同步仓库配置，用户无需手动维护
-    syncSources();
-    // 解析接口 / 网页播放接口同样随仓库实时生效，无需重新编译安装
-    ParseService.sync();
-    WebPlayService.sync();
+    // 首屏渲染完成后再静默同步仓库配置，避免与首屏请求抢网络、拖慢启动
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(seconds: 2), () {
+        syncSources();
+        // 解析接口 / 网页播放接口同样随仓库实时生效，无需重新编译安装
+        ParseService.sync();
+        WebPlayService.sync();
+      });
+    });
   }
 
   void switchSource(VideoSource s) {

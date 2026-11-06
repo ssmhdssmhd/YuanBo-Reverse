@@ -36,6 +36,7 @@ class _SplashPageState extends State<SplashPage>
   }
 
   Future<void> _init() async {
+    final startAt = DateTime.now();
     await SettingsService.getPlayerStyle();
     await SettingsService.getShowSearch();
     await HistoryService.load();
@@ -43,32 +44,43 @@ class _SplashPageState extends State<SplashPage>
     try {
       final pkg = await PackageInfo.fromPlatform();
       version = pkg.version;
-      setState(() => _version = version);
+      if (mounted) setState(() => _version = version);
     } catch (_) {}
-    final texts = await Future.wait<String>([
-      UpdateNoticeService.load()
-          .timeout(const Duration(seconds: 8), onTimeout: () => ''),
-      AnnouncementService.load()
-          .timeout(const Duration(seconds: 8), onTimeout: () => ''),
-    ]);
-    final updateNotice = texts[0];
-    final announcement = texts[1];
-    final showUpdateNotice = await UpdateNoticeService.shouldShow(version);
-    final showAnnouncement =
-        version.isNotEmpty && await AnnouncementService.shouldShow(version);
-    await Future.delayed(const Duration(seconds: 2));
+
+    // 启动动画最短展示时长，网络类请求全部移到首页之后，避免拖慢启动
+    final elapsed = DateTime.now().difference(startAt).inMilliseconds;
+    final remain = 1100 - elapsed;
+    if (remain > 0) {
+      await Future.delayed(Duration(milliseconds: remain));
+    }
     if (!mounted) return;
     Get.off(() => const HomePage());
-    if (showUpdateNotice) {
-      // 内置 gxgg.txt 兜底，保证每次版本更新都能弹出
-      final notice = updateNotice.isNotEmpty
-          ? updateNotice
-          : '📢 版本更新 v$version\n· 本次更新包含功能优化与问题修复';
+    _checkNotices(version);
+  }
+
+  /// 版本更新 / 公告在首页展示，不阻塞进入 App
+  Future<void> _checkNotices(String version) async {
+    try {
+      final texts = await Future.wait<String>([
+        UpdateNoticeService.load()
+            .timeout(const Duration(seconds: 6), onTimeout: () => ''),
+        AnnouncementService.load()
+            .timeout(const Duration(seconds: 6), onTimeout: () => ''),
+      ]);
+      final updateNotice = texts[0];
+      final announcement = texts[1];
+      final showUpdateNotice = await UpdateNoticeService.shouldShow(version);
+      final showAnnouncement = version.isNotEmpty &&
+          await AnnouncementService.shouldShow(version);
       // 等待首页挂载完成，避免弹窗因无 context 被跳过
-      for (var i = 0; i < 6 && Get.context == null; i++) {
-        await Future.delayed(const Duration(milliseconds: 300));
+      for (var i = 0; i < 10 && Get.context == null; i++) {
+        await Future.delayed(const Duration(milliseconds: 200));
       }
-      if (Get.context != null) {
+      if (showUpdateNotice && Get.context != null) {
+        // 内置 gxgg.txt 兜底，保证每次版本更新都能弹出
+        final notice = updateNotice.isNotEmpty
+            ? updateNotice
+            : '📢 版本更新 v$version\n· 本次更新包含功能优化与问题修复';
         await Get.dialog(
           UpdateNoticeDialog(content: notice, version: version),
           barrierDismissible: false,
@@ -76,17 +88,17 @@ class _SplashPageState extends State<SplashPage>
         // 用户确认关闭后才记录，避免弹窗未展示就丢失提示
         await UpdateNoticeService.markShown(version);
       }
-    }
-    if (showAnnouncement) {
-      await AnnouncementService.markShown(version);
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (Get.context != null) {
-        Get.dialog(
-          AnnouncementDialog(content: announcement),
-          barrierDismissible: false,
-        );
+      if (showAnnouncement && Get.context != null) {
+        await AnnouncementService.markShown(version);
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (Get.context != null) {
+          Get.dialog(
+            AnnouncementDialog(content: announcement),
+            barrierDismissible: false,
+          );
+        }
       }
-    }
+    } catch (_) {}
   }
 
   @override

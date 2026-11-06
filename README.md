@@ -7,9 +7,9 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.29 |
+| 当前版本 | v1.0.30 |
 | 构建时间 | 2026-11-07 |
-| 技术栈 | Flutter + GetX + video_player + Dio + WebView |
+| 技术栈 | Flutter + GetX + video_player / media_kit(MPV) + Dio + WebView |
 | 编译方式 | GitHub Actions 云端编译 |
 
 ## 功能特性
@@ -25,8 +25,8 @@
 - 多线路多剧集在线播放，播放器内可「换源」续播
 - 观看历史自动续看：记录影片、线路、集数与进度，左滑删除 / 一键清空
 - 播放时自动保持屏幕常亮，暂停 / 退出后恢复系统息屏
-- 三种播放器样式：简洁版（PotPlayer 风格）、哔哩哔哩风格、专业版（EXO 风格顶部信息栏 + 底部工具栏）
-- 设置中心：可选「播放器 1 · 简洁版」「播放器 2 · 哔哩哔哩风格」「播放器 3 · 专业版」
+- 四种播放器样式：简洁版（PotPlayer 风格）、哔哩哔哩风格、专业版（EXO 风格）、MPV（libmpv 内核）
+- 设置中心：可选「播放器 1 · 简洁版」「播放器 2 · 哔哩哔哩风格」「播放器 3 · 专业版」「播放器 4 · MPV」
 - 应用内更新：自动检测 GitHub Release，国内镜像加速下载 APK
 - JSON 解析：QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 播放页自动走解析接口取直链播放
 - 网页播放：解析失败时自动在 App 内置 WebView 打开「网页播放接口 + 播放页地址」，不跳浏览器
@@ -150,13 +150,14 @@ lib/
 │   ├── source_service.dart    # 视频源持久化 + 仓库 zyz.txt 同步
 │   ├── announcement_service.dart # 公告缓存 + 仓库 sygg.txt 同步
 │   ├── settings_service.dart  # 应用设置（播放器样式）
+│   ├── mpv_player_adapter.dart # MPV / libmpv 播放内核适配
 │   ├── parse_service.dart     # JSON 解析接口（本地 / jiexi.json 同步 / 平台解析）
 │   └── update_service.dart    # 检查更新 + 镜像下载 APK
 ├── pages/
 │   ├── splash_page.dart       # 启动页（版本首次启动弹出公告）
 │   ├── home_page.dart         # 首页（分类 + 列表 + 侧边栏）
 │   ├── detail_page.dart       # 详情页
-│   ├── player_page.dart       # 播放器（简洁版 / 哔哩哔哩风格）
+│   ├── player_page.dart       # 播放器（简洁版 / 哔哩哔哩 / 专业版 / MPV）
 │   ├── source_page.dart       # 视频源管理（添加 / 左滑删除 / 同步）
 │   ├── settings_page.dart     # 设置页（播放器选择）
 │   ├── player_source_page.dart # 播放器源（内置播放器 / JSON 解析 / 外部播放器）
@@ -196,6 +197,14 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.30 (20261107)
+- 新增「播放器 4 · MPV」：基于 media_kit / libmpv 内核，支持更多格式与更稳的软硬解切换
+- MPV 播放器 UI：紫色主题、顶部信息栏、中央播放暂停、底部进度条与横向专业工具栏
+- 支持音轨切换、字幕选择 / 关闭、倍速、单集循环、下一集、硬解开关与插帧开关
+- 新增「MPV 播放参数」面板：查看内核、分辨率、时长、音轨 / 字幕数量与解码状态
+- 启动速度优化：公告 / 更新提示改为进入首页后再拉取，不再阻塞启动
+- 启动速度优化：资源站、解析接口、网页播放接口同步延后到首屏渲染后，避免抢占网络
 
 ### v1.0.29 (20261107)
 - 修复「仓库同步」按钮长时间无响应：镜像并发请求，单个 6 秒超时，最多约 6 秒返回

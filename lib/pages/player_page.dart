@@ -6,6 +6,8 @@ import 'package:android_intent_plus/flag.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:media_kit/media_kit.dart' show AudioTrack, SubtitleTrack;
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
@@ -16,6 +18,7 @@ import 'package:yuanbo/pages/parse_api_page.dart';
 import 'package:yuanbo/pages/web_player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/services/history_service.dart';
+import 'package:yuanbo/services/mpv_player_adapter.dart';
 import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/system_level_service.dart';
@@ -59,7 +62,8 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
-  VideoPlayerController? _videoCtrl;
+  /// 播放控制器：video_player 的 VideoPlayerController 或 MPV 内核适配器
+  dynamic _videoCtrl;
   PlayEpisode? _episode;
   String _sourceName = '';
   String _sourceApi = '';
@@ -73,10 +77,11 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 是否已请求屏幕常亮（播放中保持，暂停 / 退出恢复）
   bool _keepScreenOn = false;
 
-  /// 播放器 3 的夜间滤镜 / 硬解 / 多线程状态
+  /// 播放器 3 / 4 的夜间滤镜 / 硬解 / 多线程 / MPV 插帧状态
   bool _night = false;
   bool _hwDecode = true;
   bool _multiThread = true;
+  bool _mpvInterpolation = false;
 
   /// 观看历史：续播位置是否已应用 / 上次写入时间
   bool _resumeApplied = false;
@@ -150,7 +155,8 @@ class _PlayerPageState extends State<PlayerPage> {
     await SystemLevelService.setPlaying(true);
     if (!mounted) return;
     if (_style == SettingsService.playerBili ||
-        _style == SettingsService.playerV3) {
+        _style == SettingsService.playerV3 ||
+        _style == SettingsService.playerV4) {
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
@@ -213,8 +219,17 @@ class _PlayerPageState extends State<PlayerPage> {
 
     try {
       _playUrl = target;
-      final ctrl = VideoPlayerController.networkUrl(Uri.parse(target));
-      await ctrl.initialize();
+      dynamic ctrl;
+      if (_style == SettingsService.playerV4) {
+        final mpv = MpvPlayerAdapter(target);
+        await mpv.initialize();
+        mpv.setProperty('hwdec', _hwDecode ? 'auto-safe' : 'no');
+        ctrl = mpv;
+      } else {
+        final exo = VideoPlayerController.networkUrl(Uri.parse(target));
+        await exo.initialize();
+        ctrl = exo;
+      }
       if (!mounted) {
         ctrl.dispose();
         return;
@@ -468,8 +483,9 @@ class _PlayerPageState extends State<PlayerPage> {
   Future<void> _toggleFullscreen() async {
     final next = !_fullscreen;
     setState(() => _fullscreen = next);
-    if (_style == SettingsService.playerV3) {
-      // 播放器 3 固定横屏，只切换系统栏显隐
+    if (_style == SettingsService.playerV3 ||
+        _style == SettingsService.playerV4) {
+      // 播放器 3 / 4 固定横屏，只切换系统栏显隐
       await SystemChrome.setEnabledSystemUIMode(
           next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
       return;
@@ -1019,7 +1035,8 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget build(BuildContext context) {
     final bili = _style == SettingsService.playerBili;
     final v3 = _style == SettingsService.playerV3;
-    final custom = bili || v3;
+    final mpv = _style == SettingsService.playerV4;
+    final custom = bili || v3 || mpv;
     return PopScope(
       canPop: custom || !_fullscreen,
       onPopInvokedWithResult: (didPop, _) {
@@ -1154,6 +1171,20 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// 按播放内核渲染视频画面（MPV 用 media_kit 的 Video，其它用 video_player）
+  Widget _videoSurface(dynamic ctrl) {
+    if (ctrl is MpvPlayerAdapter) {
+      return Video(
+        controller: ctrl.videoController,
+        controls: NoVideoControls,
+        fit: BoxFit.contain,
+        wakelock: false,
+        pauseUponEnteringBackgroundMode: false,
+      );
+    }
+    return VideoPlayer(ctrl as VideoPlayerController);
+  }
+
   Widget _buildPlayer() {
     final ctrl = _videoCtrl!;
     final value = ctrl.value;
@@ -1191,10 +1222,10 @@ class _PlayerPageState extends State<PlayerPage> {
             child: AspectRatio(
               aspectRatio: value.aspectRatio > 0 ? value.aspectRatio : 16 / 9,
               child: _qualityFilter == null
-                  ? VideoPlayer(ctrl)
+                  ? _videoSurface(ctrl)
                   : ColorFiltered(
                       colorFilter: _qualityFilter!,
-                      child: VideoPlayer(ctrl),
+                      child: _videoSurface(ctrl),
                     ),
             ),
           ),
@@ -1323,10 +1354,12 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget _buildControls(
-      VideoPlayerController ctrl, double positionMs, double maxMs) {
+  Widget _buildControls(dynamic ctrl, double positionMs, double maxMs) {
     if (_style == SettingsService.playerBili) {
       return _buildBiliControls(ctrl, positionMs, maxMs);
+    }
+    if (_style == SettingsService.playerV4) {
+      return _buildMpvControls(ctrl, positionMs, maxMs);
     }
     if (_style == SettingsService.playerV3) {
       return _buildV3Controls(ctrl, positionMs, maxMs);
@@ -1336,7 +1369,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 播放器 3：专业影视播放器风格（顶部信息栏 + 右侧锁定/旋转 + 底部工具栏）
   Widget _buildV3Controls(
-      VideoPlayerController ctrl, double positionMs, double maxMs) {
+      dynamic ctrl, double positionMs, double maxMs) {
     final value = ctrl.value;
     final pos = Duration(milliseconds: positionMs.toInt());
     final size = value.size;
@@ -1615,7 +1648,7 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget _v3SpeedButton(VideoPlayerController ctrl) {
+  Widget _v3SpeedButton(dynamic ctrl) {
     return PopupMenuButton<double>(
       initialValue: _speed,
       tooltip: '倍速',
@@ -1643,7 +1676,7 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Future<void> _showV3Info(VideoPlayerController ctrl) async {
+  Future<void> _showV3Info(dynamic ctrl) async {
     final value = ctrl.value;
     final size = value.size;
     final rows = <String, String>{
@@ -1697,9 +1730,461 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// 播放器 4：MPV 风格（libmpv 内核，紫色主题）
+  Widget _buildMpvControls(dynamic ctrl, double positionMs, double maxMs) {
+    final value = ctrl.value;
+    final pos = Duration(milliseconds: positionMs.toInt());
+    final size = value.size;
+    final res = size.width > 0
+        ? '${size.width.toInt()} × ${size.height.toInt()}'
+        : '画质自适应';
+    const violet = Color(0xFFA78BFA);
+    final title = widget.vodName.isEmpty
+        ? (_episode?.name ?? '')
+        : '${widget.vodName}：${_episode?.name ?? ''}';
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xC0000000),
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0xE0100E1C),
+          ],
+          stops: [0.0, 0.18, 0.62, 1.0],
+        ),
+      ),
+      child: SafeArea(
+        child: Stack(
+          children: [
+            // 顶部信息栏
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(2, 2, 8, 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_ios_new,
+                          color: Colors.white, size: 20),
+                      onPressed: () => Get.back(),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: violet),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'MPV',
+                                  style: TextStyle(
+                                      color: violet,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '$res · libmpv',
+                            style: const TextStyle(
+                                color: Color(0xB3FFFFFF), fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _v3TopIcon(Icons.info_outline_rounded,
+                        () => _showMpvInfo(ctrl)),
+                    _v3TopIcon(Icons.settings_rounded,
+                        () => Get.to(() => const ParseApiPage())),
+                  ],
+                ),
+              ),
+            ),
+            // 中央播放 / 暂停
+            Center(
+              child: IconButton(
+                iconSize: 52,
+                splashRadius: 30,
+                onPressed: _togglePlay,
+                icon: Icon(
+                  value.isPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            // 右侧快捷栏
+            Positioned(
+              right: 2,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _v3Rail(
+                      _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                      _locked ? '解锁' : '锁定',
+                      _toggleLock,
+                    ),
+                    const SizedBox(height: 22),
+                    _v3Rail(Icons.screen_rotation_rounded, '旋转',
+                        _toggleFullscreen),
+                  ],
+                ),
+              ),
+            ),
+            // 底部进度条 + 工具栏
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      children: [
+                        Text(_fmt(pos),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600)),
+                        Expanded(
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 2,
+                              activeTrackColor: violet,
+                              inactiveTrackColor:
+                                  Colors.white.withValues(alpha: 0.28),
+                              thumbColor: violet,
+                              thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 5.5),
+                              overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 14),
+                              overlayColor: violet.withValues(alpha: 0.2),
+                            ),
+                            child: Slider(
+                              min: 0,
+                              max: maxMs,
+                              value: positionMs.clamp(0.0, maxMs).toDouble(),
+                              onChanged: (v) =>
+                                  setState(() => _dragValue = v),
+                              onChangeStart: (_) => _hideTimer?.cancel(),
+                              onChangeEnd: (v) {
+                                ctrl.seekTo(Duration(milliseconds: v.toInt()));
+                                setState(() => _dragValue = null);
+                                _scheduleHide();
+                              },
+                            ),
+                          ),
+                        ),
+                        Text(_fmt(ctrl.value.duration),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600)),
+                        IconButton(
+                          icon: Icon(
+                            _fullscreen
+                                ? Icons.fullscreen_exit_rounded
+                                : Icons.fullscreen_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          onPressed: _toggleFullscreen,
+                        ),
+                      ],
+                    ),
+                  ),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                    child: Row(
+                      children: [
+                        _mpvTool('换源', _switching ? null : _switchSource),
+                        _mpvTool('选集', _showEpisodeSheet),
+                        _v3SpeedButton(ctrl),
+                        _mpvTool('音轨', () => _showMpvAudio(ctrl)),
+                        _mpvTool('字幕', () => _showMpvSubtitle(ctrl)),
+                        _mpvTool('硬解', _toggleMpvHwDecode, active: _hwDecode),
+                        _mpvTool('插帧', _toggleMpvInterpolation,
+                            active: _mpvInterpolation),
+                        _mpvTool('循环', () {
+                          ctrl.setLooping(!ctrl.value.isLooping);
+                          setState(() {});
+                        }, active: ctrl.value.isLooping),
+                        _mpvTool('下一集', _nextEpisode),
+                        _mpvTool('画面',
+                            () => _selectQuality((_quality + 1) % 4),
+                            active: _quality != 0),
+                        _mpvTool('参数', () => _showMpvInfo(ctrl)),
+                        _mpvTool('全屏', _toggleFullscreen),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _mpvTool(String label, VoidCallback? onTap, {bool active = false}) {
+    const violet = Color(0xFFA78BFA);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: onTap == null
+                ? const Color(0x4DFFFFFF)
+                : (active ? violet : const Color(0xCCFFFFFF)),
+            fontSize: 11,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _toggleMpvHwDecode() {
+    final ctrl = _videoCtrl;
+    if (ctrl is! MpvPlayerAdapter) return;
+    setState(() => _hwDecode = !_hwDecode);
+    ctrl.setProperty('hwdec', _hwDecode ? 'auto-safe' : 'no');
+    _toast(_hwDecode ? 'MPV 已启用硬件解码' : 'MPV 已切换为软件解码');
+  }
+
+  void _toggleMpvInterpolation() {
+    final ctrl = _videoCtrl;
+    if (ctrl is! MpvPlayerAdapter) return;
+    setState(() => _mpvInterpolation = !_mpvInterpolation);
+    ctrl.setProperty('video-sync',
+        _mpvInterpolation ? 'display-resample' : 'audio');
+    ctrl.setProperty('interpolation', _mpvInterpolation ? 'yes' : 'no');
+    if (_mpvInterpolation) ctrl.setProperty('tscale', 'oversample');
+    _toast(_mpvInterpolation ? '已开启 MPV 插帧（需设备支持）' : '已关闭 MPV 插帧');
+  }
+
+  String _mpvTrackLabel(String id, String? title, String? language,
+      String? codec, String? channels) {
+    final parts = <String>[];
+    parts.add(title?.isNotEmpty == true ? title! : '轨道 $id');
+    if (language != null && language.isNotEmpty) parts.add(language);
+    if (codec != null && codec.isNotEmpty) parts.add(codec);
+    if (channels != null && channels.isNotEmpty) parts.add(channels);
+    return parts.join(' · ');
+  }
+
+  Future<void> _showMpvAudio(dynamic ctrl) async {
+    if (ctrl is! MpvPlayerAdapter) return;
+    final tracks = ctrl.audioTracks;
+    if (tracks.isEmpty) {
+      _toast('当前视频只有一个音轨');
+      return;
+    }
+    _hideTimer?.cancel();
+    final current = ctrl.currentAudioTrack.id;
+    final selected = await showModalBottomSheet<AudioTrack>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1B3A),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+              child: Row(
+                children: [
+                  Text('选择音轨',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            ...tracks.map((t) => ListTile(
+                  dense: true,
+                  title: Text(
+                    _mpvTrackLabel(
+                        t.id, t.title, t.language, t.codec, t.channels),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                  trailing: current == t.id
+                      ? const Icon(Icons.check,
+                          color: Color(0xFFA78BFA), size: 18)
+                      : null,
+                  onTap: () => Navigator.of(ctx).pop(t),
+                )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      await ctrl.selectAudio(selected);
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _showMpvSubtitle(dynamic ctrl) async {
+    if (ctrl is! MpvPlayerAdapter) return;
+    final tracks = ctrl.subtitleTracks;
+    _hideTimer?.cancel();
+    final current = ctrl.currentSubtitleTrack.id;
+    final selected = await showModalBottomSheet<SubtitleTrack>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1B3A),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+              child: Row(
+                children: [
+                  Text('选择字幕',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            ListTile(
+              dense: true,
+              title: const Text('关闭字幕',
+                  style: TextStyle(color: Colors.white, fontSize: 13)),
+              trailing: current == 'no'
+                  ? const Icon(Icons.check, color: Color(0xFFA78BFA), size: 18)
+                  : null,
+              onTap: () => Navigator.of(ctx).pop(SubtitleTrack.no()),
+            ),
+            ...tracks.map((t) => ListTile(
+                  dense: true,
+                  title: Text(
+                    _mpvTrackLabel(
+                        t.id, t.title, t.language, t.codec, t.channels),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                  trailing: current == t.id
+                      ? const Icon(Icons.check,
+                          color: Color(0xFFA78BFA), size: 18)
+                      : null,
+                  onTap: () => Navigator.of(ctx).pop(t),
+                )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      await ctrl.selectSubtitle(selected);
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _showMpvInfo(dynamic ctrl) async {
+    final value = ctrl.value;
+    final size = value.size;
+    final mpv = ctrl is MpvPlayerAdapter ? ctrl : null;
+    final rows = <String, String>{
+      '播放内核': 'MPV（libmpv）/ media_kit',
+      '影片': widget.vodName.isEmpty ? (_episode?.name ?? '') : widget.vodName,
+      '剧集': _episode?.name ?? '',
+      '线路': widget.lineName.isEmpty ? '默认线路' : widget.lineName,
+      '来源': _sourceName.isEmpty ? '未知' : _sourceName,
+      '分辨率': size.width > 0
+          ? '${size.width.toInt()} × ${size.height.toInt()}'
+          : '画质自适应',
+      '时长': _fmt(value.duration),
+      '倍速': '${_speed}x',
+      '解码': _hwDecode ? '硬件解码（hwdec=auto-safe）' : '软件解码',
+      '插帧': _mpvInterpolation ? '已开启' : '已关闭',
+      '循环': value.isLooping ? '单集循环' : '关闭',
+      '音轨': '${mpv?.audioTracks.length ?? 0} 条',
+      '字幕': '${mpv?.subtitleTracks.length ?? 0} 条',
+    };
+    await Get.dialog(
+      AlertDialog(
+        backgroundColor: const Color(0xFF1E1B3A),
+        title: const Text('MPV 播放参数', style: TextStyle(color: Colors.white)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: rows.entries
+                .map((e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 72,
+                            child: Text(e.key,
+                                style: const TextStyle(
+                                    color: GlassTheme.textMuted, fontSize: 12)),
+                          ),
+                          Expanded(
+                            child: Text(e.value,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                    ))
+                .toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// PotPlayer 风格底部控制条（极简黑色）
   Widget _buildSimpleControls(
-      VideoPlayerController ctrl, double positionMs, double maxMs) {
+      dynamic ctrl, double positionMs, double maxMs) {
     final playing = ctrl.value.isPlaying;
     final barColor = const Color(0xE6111118);
     final blue = const Color(0xFF3FA9FF);
@@ -1851,7 +2336,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 哔哩哔哩风格控制栏（横屏，播放器内可选集 / 倍速）
   Widget _buildBiliControls(
-      VideoPlayerController ctrl, double positionMs, double maxMs) {
+      dynamic ctrl, double positionMs, double maxMs) {
     final playing = ctrl.value.isPlaying;
     const pink = Color(0xFFFB7299);
     final pos = Duration(milliseconds: positionMs.toInt());
