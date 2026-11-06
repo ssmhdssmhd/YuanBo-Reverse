@@ -90,34 +90,47 @@ class ParseService {
     await _save();
   }
 
+  /// 并发请求所有镜像，取第一个成功结果；单个镜像 6 秒超时
+  static Future<String?> _fetchConfig(String url) async {
+    try {
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 6),
+        receiveTimeout: const Duration(seconds: 6),
+      ));
+      final res = await dio.get<String>(
+        url,
+        options: Options(
+          responseType: ResponseType.plain,
+          followRedirects: true,
+          headers: {
+            HttpHeaders.cacheControlHeader: 'no-cache',
+            HttpHeaders.userAgentHeader: 'YuanBo-ParseConfig',
+          },
+        ),
+      );
+      return res.data;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 从仓库 jiexi.json 同步：仓库为权威配置，新增 / 更新 / 删除都会实时生效
   static Future<int> sync() async {
     await _ensureLoaded();
-    final dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 12),
-    ));
-    for (final url in AppConstants.parseConfigUrls()) {
-      try {
-        final res = await dio.get<String>(
-          url,
-          options: Options(
-            responseType: ResponseType.plain,
-            followRedirects: true,
-            headers: {
-              HttpHeaders.cacheControlHeader: 'no-cache',
-              HttpHeaders.userAgentHeader: 'YuanBo-ParseConfig',
-            },
-          ),
-        );
-        final raw = res.data;
-        if (raw == null || raw.trim().isEmpty) continue;
-        final changed = _applyRemote(raw);
-        await _save();
-        return changed;
-      } catch (_) {}
+    final results = await Future.wait(
+      AppConstants.parseConfigUrls().map(_fetchConfig),
+    );
+    String? raw;
+    for (final r in results) {
+      if (r != null && r.trim().isNotEmpty) {
+        raw = r;
+        break;
+      }
     }
-    return 0;
+    if (raw == null) return 0;
+    final changed = _applyRemote(raw);
+    await _save();
+    return changed;
   }
 
   /// 应用仓库配置（返回变更条数）

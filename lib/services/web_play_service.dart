@@ -130,33 +130,46 @@ class WebPlayService {
     return _apis.first;
   }
 
+  /// 并发请求所有镜像，取第一个成功结果；单个镜像 6 秒超时，避免长时间无响应
+  static Future<String?> _fetchConfig(String url) async {
+    try {
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 6),
+        receiveTimeout: const Duration(seconds: 6),
+      ));
+      final res = await dio.get<String>(
+        url,
+        options: Options(
+          responseType: ResponseType.plain,
+          followRedirects: true,
+          headers: {
+            HttpHeaders.cacheControlHeader: 'no-cache',
+            HttpHeaders.userAgentHeader: 'YuanBo-WebPlayConfig',
+          },
+        ),
+      );
+      return res.data;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<int> sync() async {
     await _ensureLoaded();
-    final dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 12),
-    ));
-    for (final url in AppConstants.webPlayConfigUrls()) {
-      try {
-        final res = await dio.get<String>(
-          url,
-          options: Options(
-            responseType: ResponseType.plain,
-            followRedirects: true,
-            headers: {
-              HttpHeaders.cacheControlHeader: 'no-cache',
-              HttpHeaders.userAgentHeader: 'YuanBo-WebPlayConfig',
-            },
-          ),
-        );
-        final raw = res.data;
-        if (raw == null || raw.trim().isEmpty) continue;
-        final changed = _applyRemote(raw);
-        await _save();
-        return changed;
-      } catch (_) {}
+    final results = await Future.wait(
+      AppConstants.webPlayConfigUrls().map(_fetchConfig),
+    );
+    String? raw;
+    for (final r in results) {
+      if (r != null && r.trim().isNotEmpty) {
+        raw = r;
+        break;
+      }
     }
-    return 0;
+    if (raw == null) return 0;
+    final changed = _applyRemote(raw);
+    await _save();
+    return changed;
   }
 
   /// 拼接实际播放地址

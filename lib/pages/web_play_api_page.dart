@@ -33,15 +33,24 @@ class _WebPlayApiPageState extends State<WebPlayApiPage> {
   Future<void> _silentSync() async {
     if (_syncing) return;
     if (mounted) setState(() => _syncing = true);
-    await WebPlayService.sync();
+    try {
+      await WebPlayService.sync();
+    } catch (_) {}
     await _load(auto: false);
     if (mounted) setState(() => _syncing = false);
   }
 
   Future<void> _sync() async {
-    if (_syncing) return;
+    if (_syncing) {
+      _toast('正在同步仓库配置，请稍候…');
+      return;
+    }
     setState(() => _syncing = true);
-    final changed = await WebPlayService.sync();
+    _toast('正在同步仓库配置…');
+    var changed = 0;
+    try {
+      changed = await WebPlayService.sync();
+    } catch (_) {}
     await _load(auto: false);
     if (!mounted) return;
     setState(() => _syncing = false);

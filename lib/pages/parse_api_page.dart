@@ -30,11 +30,18 @@ class _ParseApiPageState extends State<ParseApiPage> {
   }
 
   Future<void> _sync({bool silent = false}) async {
-    if (_syncing) return;
+    if (_syncing) {
+      if (!silent) _toast('正在同步仓库配置，请稍候…');
+      return;
+    }
     if (!silent && mounted) setState(() => _syncing = true);
-    final added = await ParseService.sync();
+    if (!silent) _toast('正在同步仓库配置…');
+    var added = 0;
+    try {
+      added = await ParseService.sync();
+    } catch (_) {}
     if (!mounted) return;
-    setState(() => _syncing = false);
+    if (!silent) setState(() => _syncing = false);
     if (silent) return;
     _toast(added > 0 ? '已同步仓库配置：$added 项变更' : '仓库配置已是最新');
   }
