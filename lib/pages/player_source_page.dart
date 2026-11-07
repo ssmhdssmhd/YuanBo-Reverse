@@ -52,7 +52,6 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
   String _styleLabel(int style) {
     if (style == SettingsService.playerBili) return '播放器 2 · 哔哩哔哩风格';
     if (style == SettingsService.playerV3) return '播放器 3 · 专业版';
-    if (style == SettingsService.playerV4) return '播放器 4 · MPV';
     return '播放器 1 · 简洁版';
   }
 
@@ -122,13 +121,6 @@ class _PlayerSourcePageState extends State<PlayerSourcePage> {
                 icon: Icons.desktop_windows,
                 title: '播放器 3 · 专业版',
                 subtitle: '自动横屏，顶部信息栏 + 右侧锁定 / 旋转 + 底部专业工具栏',
-              ),
-              const SizedBox(height: 12),
-              _buildOption(
-                style: SettingsService.playerV4,
-                icon: Icons.movie_creation_outlined,
-                title: '播放器 4 · MPV',
-                subtitle: 'libmpv 内核，支持音轨 / 字幕切换、硬解、插帧与单集循环',
               ),
               const SizedBox(height: 24),
               const Padding(

@@ -6,22 +6,16 @@ import 'package:android_intent_plus/flag.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:media_kit/media_kit.dart' show AudioTrack, SubtitleTrack;
-import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/models/watch_history.dart';
 import 'package:yuanbo/pages/cast_page.dart';
-import 'package:yuanbo/pages/danmaku_api_page.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/parse_api_page.dart';
-import 'package:yuanbo/pages/web_play_api_page.dart';
 import 'package:yuanbo/pages/web_player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
-import 'package:yuanbo/services/danmaku_service.dart';
 import 'package:yuanbo/services/history_service.dart';
-import 'package:yuanbo/services/mpv_player_adapter.dart';
 import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/system_level_service.dart';
@@ -65,8 +59,7 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
-  /// 播放控制器：video_player 的 VideoPlayerController 或 MPV 内核适配器
-  dynamic _videoCtrl;
+  VideoPlayerController? _videoCtrl;
   PlayEpisode? _episode;
   String _sourceName = '';
   String _sourceApi = '';
@@ -80,18 +73,14 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 是否已请求屏幕常亮（播放中保持，暂停 / 退出恢复）
   bool _keepScreenOn = false;
 
-  /// 播放器 3 / 4 的夜间滤镜 / 硬解 / 多线程 / MPV 插帧状态
+  /// 播放器 3 的夜间滤镜 / 硬解 / 多线程状态
   bool _night = false;
   bool _hwDecode = true;
   bool _multiThread = true;
-  bool _mpvInterpolation = false;
 
   /// 观看历史：续播位置是否已应用 / 上次写入时间
   bool _resumeApplied = false;
   int _lastHistorySave = 0;
-
-  /// 自动兜底网页播放防重入（避免错误流重复触发连续跳转）
-  bool _webFallbacking = false;
 
   // 亮度 / 音量手势（播放器 2）
   double _brightness = -1;
@@ -135,9 +124,6 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 画质增强模式（0 标准、1 鲜艳、2 明亮、3 柔和）
   int _quality = 0;
 
-  String get _qualityName =>
-      const ['标准', '鲜艳', '明亮', '柔和'][_quality.clamp(0, 3)];
-
   /// 0 = 简洁版，1 = 哔哩哔哩风格（横屏 + 播放器内选集）
   int _style = SettingsService.currentPlayerStyle;
   List<PlayEpisode> _episodes = const [];
@@ -164,8 +150,7 @@ class _PlayerPageState extends State<PlayerPage> {
     await SystemLevelService.setPlaying(true);
     if (!mounted) return;
     if (_style == SettingsService.playerBili ||
-        _style == SettingsService.playerV3 ||
-        _style == SettingsService.playerV4) {
+        _style == SettingsService.playerV3) {
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
@@ -192,7 +177,6 @@ class _PlayerPageState extends State<PlayerPage> {
     _videoCtrl?.removeListener(_onTick);
     _videoCtrl?.dispose();
     _videoCtrl = null;
-    _webFallbacking = false;
     _disposePreview();
     _setKeepScreenOn(false);
 
@@ -213,17 +197,14 @@ class _PlayerPageState extends State<PlayerPage> {
       );
       if (!mounted) return;
       if (resolved == null) {
-        if (mounted) setState(() => _parsing = false);
-        // 解析失败先自动进入网页播放，不要先停在错误页
-        final opened = await _openWebPlay(target);
-        if (!mounted) return;
         setState(() {
-          _error = opened
-              ? '平台视频解析失败，已用网页播放打开。\n可检查「视频解析」接口，或返回后改用其它资源站。'
-              : (ParseService.count == 0
-                  ? '该视频来自平台播放页，尚未配置 JSON 解析接口。\n可在「播放器源 → 视频解析」添加解析接口。'
-                  : '平台视频解析失败。\n可检查解析接口、改用网页播放，或更换资源站。');
+          _parsing = false;
+          _error = ParseService.count == 0
+              ? '该视频来自平台播放页，尚未配置 JSON 解析接口，已尝试用网页播放打开。\n'
+                  '也可在「播放器源 → 视频解析」添加解析接口。'
+              : '平台视频解析失败，已尝试用网页播放打开；也可检查解析接口或更换资源站。';
         });
+        await _openWebPlay(target, auto: true);
         return;
       }
       target = resolved;
@@ -232,17 +213,8 @@ class _PlayerPageState extends State<PlayerPage> {
 
     try {
       _playUrl = target;
-      dynamic ctrl;
-      if (_style == SettingsService.playerV4) {
-        final mpv = MpvPlayerAdapter(target);
-        await mpv.initialize();
-        mpv.setProperty('hwdec', _hwDecode ? 'auto-safe' : 'no');
-        ctrl = mpv;
-      } else {
-        final exo = VideoPlayerController.networkUrl(Uri.parse(target));
-        await exo.initialize();
-        ctrl = exo;
-      }
+      final ctrl = VideoPlayerController.networkUrl(Uri.parse(target));
+      await ctrl.initialize();
       if (!mounted) {
         ctrl.dispose();
         return;
@@ -251,34 +223,11 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!_resumeApplied &&
           widget.startPositionMs > 0 &&
           ep.url == widget.episode.url) {
+        await ctrl.seekTo(Duration(milliseconds: widget.startPositionMs));
         _resumeApplied = true;
-        final resumePos = Duration(milliseconds: widget.startPositionMs);
-        if (ctrl is MpvPlayerAdapter) {
-          // MPV 异步起播：等流真正开始播放后再定位，避免 seek 被丢弃
-          ctrl.player.stream.playing.firstWhere((p) => p).then((_) {
-            if (mounted && _videoCtrl == ctrl) ctrl.seekTo(resumePos);
-          }).catchError((_) {});
-        } else {
-          await ctrl.seekTo(resumePos);
-        }
       }
       _videoCtrl = ctrl;
       ctrl.addListener(_onTick);
-      // MPV 起播错误走异步错误流，同样自动兜底到网页播放
-      if (ctrl is MpvPlayerAdapter) {
-        ctrl.player.stream.error
-            .firstWhere((e) => e.trim().isNotEmpty)
-            .then((e) async {
-          if (!mounted || _videoCtrl != ctrl || _webFallbacking) return;
-          _webFallbacking = true;
-          final opened = await _openWebPlay(ep.url);
-          _webFallbacking = false;
-          if (!mounted) return;
-          setState(() => _error = opened
-              ? '当前线路无法播放，已用网页播放打开。\n可返回后切换剧集或更换资源站。'
-              : e);
-        }).catchError((Object _) {});
-      }
       await ctrl.play();
       _setKeepScreenOn(true);
       _recordHistory();
@@ -289,13 +238,7 @@ class _PlayerPageState extends State<PlayerPage> {
       });
       _scheduleHide();
     } catch (e) {
-      if (!mounted) return;
-      // 解析出地址却播不了（失效 / 403 / 格式不支持）：同样自动兜底到网页播放
-      final opened = await _openWebPlay(ep.url);
-      if (!mounted) return;
-      setState(() => _error = opened
-          ? '当前线路无法播放，已用网页播放打开。\n可返回后切换剧集或更换资源站。'
-          : e.toString());
+      if (mounted) setState(() => _error = e.toString());
     }
   }
 
@@ -525,9 +468,8 @@ class _PlayerPageState extends State<PlayerPage> {
   Future<void> _toggleFullscreen() async {
     final next = !_fullscreen;
     setState(() => _fullscreen = next);
-    if (_style == SettingsService.playerV3 ||
-        _style == SettingsService.playerV4) {
-      // 播放器 3 / 4 固定横屏，只切换系统栏显隐
+    if (_style == SettingsService.playerV3) {
+      // 播放器 3 固定横屏，只切换系统栏显隐
       await SystemChrome.setEnabledSystemUIMode(
           next ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
       return;
@@ -698,35 +640,18 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   /// 网页播放：App 内置 WebView 打开「接口地址 + 播放页地址」，不跳浏览器
-  ///
-  /// 返回是否成功进入网页播放页。接口列表为空时会先拉取仓库配置，
-  /// 仍然没有接口则引导用户去添加，避免自动跳转「静默失败」停在错误页。
-  Future<bool> _openWebPlay(String videoUrl) async {
+  Future<void> _openWebPlay(String videoUrl, {bool auto = false}) async {
     await WebPlayService.load();
     if (WebPlayService.count == 0) {
-      // 首次安装 / 本地未缓存：先并发拉取仓库 webplay.json
-      try {
-        await WebPlayService.sync();
-      } catch (_) {}
+      if (!auto) _toast('请先在「播放器源 → 网页播放接口」添加接口');
+      return;
     }
-    if (WebPlayService.count == 0) {
-      if (!mounted) return false;
-      _toast('未配置网页播放接口，请先添加一个接口');
-      Get.to(() => const WebPlayApiPage());
-      return false;
-    }
-    if (!mounted) return false;
+    if (!mounted) return;
     _setKeepScreenOn(false);
-    try {
-      await Get.to(() => WebPlayerPage(
-            pageUrl: videoUrl,
-            title: '${widget.vodName} ${_episode?.name ?? ''}'.trim(),
-          ));
-      return true;
-    } catch (e) {
-      if (mounted) _toast('网页播放打开失败：$e');
-      return false;
-    }
+    await Get.to(() => WebPlayerPage(
+          pageUrl: videoUrl,
+          title: '${widget.vodName} ${_episode?.name ?? ''}'.trim(),
+        ));
   }
 
   /// 切换资源站：按片名在其他源重新搜索并续播当前集
@@ -1075,7 +1000,6 @@ class _PlayerPageState extends State<PlayerPage> {
     _hintTimer?.cancel();
     _hudTimer?.cancel();
     _lockTipTimer?.cancel();
-    _mpvTitleTapTimer?.cancel();
     _recordHistory();
     _disposePreview();
     SystemLevelService.setPlaying(false);
@@ -1095,8 +1019,7 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget build(BuildContext context) {
     final bili = _style == SettingsService.playerBili;
     final v3 = _style == SettingsService.playerV3;
-    final mpv = _style == SettingsService.playerV4;
-    final custom = bili || v3 || mpv;
+    final custom = bili || v3;
     return PopScope(
       canPop: custom || !_fullscreen,
       onPopInvokedWithResult: (didPop, _) {
@@ -1207,7 +1130,7 @@ class _PlayerPageState extends State<PlayerPage> {
               onPressed: () {
                 final ep = _episode;
                 if (ep == null) return;
-                unawaited(_openWebPlay(ep.url));
+                _openWebPlay(ep.url);
               },
               icon: const Icon(Icons.language, color: GlassTheme.accent),
               label: const Text('网页播放',
@@ -1229,20 +1152,6 @@ class _PlayerPageState extends State<PlayerPage> {
         ),
       ),
     );
-  }
-
-  /// 按播放内核渲染视频画面（MPV 用 media_kit 的 Video，其它用 video_player）
-  Widget _videoSurface(dynamic ctrl) {
-    if (ctrl is MpvPlayerAdapter) {
-      return Video(
-        controller: ctrl.videoController,
-        controls: NoVideoControls,
-        fit: BoxFit.contain,
-        wakelock: false,
-        pauseUponEnteringBackgroundMode: false,
-      );
-    }
-    return VideoPlayer(ctrl as VideoPlayerController);
   }
 
   Widget _buildPlayer() {
@@ -1282,10 +1191,10 @@ class _PlayerPageState extends State<PlayerPage> {
             child: AspectRatio(
               aspectRatio: value.aspectRatio > 0 ? value.aspectRatio : 16 / 9,
               child: _qualityFilter == null
-                  ? _videoSurface(ctrl)
+                  ? VideoPlayer(ctrl)
                   : ColorFiltered(
                       colorFilter: _qualityFilter!,
-                      child: _videoSurface(ctrl),
+                      child: VideoPlayer(ctrl),
                     ),
             ),
           ),
@@ -1414,12 +1323,10 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget _buildControls(dynamic ctrl, double positionMs, double maxMs) {
+  Widget _buildControls(
+      VideoPlayerController ctrl, double positionMs, double maxMs) {
     if (_style == SettingsService.playerBili) {
       return _buildBiliControls(ctrl, positionMs, maxMs);
-    }
-    if (_style == SettingsService.playerV4) {
-      return _buildMpvControls(ctrl, positionMs, maxMs);
     }
     if (_style == SettingsService.playerV3) {
       return _buildV3Controls(ctrl, positionMs, maxMs);
@@ -1429,7 +1336,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 播放器 3：专业影视播放器风格（顶部信息栏 + 右侧锁定/旋转 + 底部工具栏）
   Widget _buildV3Controls(
-      dynamic ctrl, double positionMs, double maxMs) {
+      VideoPlayerController ctrl, double positionMs, double maxMs) {
     final value = ctrl.value;
     final pos = Duration(milliseconds: positionMs.toInt());
     final size = value.size;
@@ -1708,7 +1615,7 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget _v3SpeedButton(dynamic ctrl) {
+  Widget _v3SpeedButton(VideoPlayerController ctrl) {
     return PopupMenuButton<double>(
       initialValue: _speed,
       tooltip: '倍速',
@@ -1736,7 +1643,7 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Future<void> _showV3Info(dynamic ctrl) async {
+  Future<void> _showV3Info(VideoPlayerController ctrl) async {
     final value = ctrl.value;
     final size = value.size;
     final rows = <String, String>{
@@ -1790,640 +1697,9 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  /// 播放器 4：MPV modern 风格（浮动胶囊控制条，参考 mpv.config modernz 主题）
-  Widget _buildMpvControls(dynamic ctrl, double positionMs, double maxMs) {
-    final value = ctrl.value;
-    final pos = Duration(milliseconds: positionMs.toInt());
-    const violet = Color(0xFFA78BFA);
-    final title = widget.vodName.isEmpty
-        ? (_episode?.name ?? '')
-        : '${widget.vodName}：${_episode?.name ?? ''}';
-    final hasPrev = _episodeIndex > 0;
-    final hasNext = _episodeIndex < _episodes.length - 1;
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0x90000000),
-            Color(0x00000000),
-            Color(0x00000000),
-            Color(0x90000000),
-          ],
-          stops: [0.0, 0.16, 0.7, 1.0],
-        ),
-      ),
-      child: SafeArea(
-        child: Stack(
-          children: [
-            // 顶部：返回 + 标题胶囊（标题连击 5 次打开弹幕接口设置）
-            Positioned(
-              left: 8,
-              right: 8,
-              top: 4,
-              child: Row(
-                children: [
-                  _mpvCircleBtn(
-                      Icons.arrow_back_ios_new, () => Get.back()),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: _onMpvTitleTap,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 7),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.45),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 1),
-                              decoration: BoxDecoration(
-                                border: Border.all(color: violet),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'MPV',
-                                style: TextStyle(
-                                    color: violet,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _mpvCircleBtn(
-                      Icons.tune_rounded, () => _showMpvMore(ctrl)),
-                ],
-              ),
-            ),
-            // 右侧：锁定
-            Positioned(
-              right: 8,
-              top: 0,
-              bottom: 0,
-              child: Center(
-                child: _mpvCircleBtn(
-                  _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                  _toggleLock,
-                ),
-              ),
-            ),
-            // 底部：缩略图预览 + 进度条 + 浮动胶囊控制条
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 10,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 进度条（拖动时显示缩略图预览）
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: LayoutBuilder(
-                      builder: (ctx, constraints) {
-                        final fraction = maxMs > 0
-                            ? ((_previewMs ?? positionMs) / maxMs)
-                                .clamp(0.0, 1.0)
-                            : 0.0;
-                        const bubbleW = 176.0;
-                        final left =
-                            ((constraints.maxWidth - bubbleW) * fraction)
-                                .clamp(0.0, constraints.maxWidth - bubbleW);
-                        return Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 2.5,
-                                activeTrackColor: violet,
-                                inactiveTrackColor:
-                                    Colors.white.withValues(alpha: 0.28),
-                                thumbColor: violet,
-                                thumbShape: const RoundSliderThumbShape(
-                                    enabledThumbRadius: 5.5),
-                                overlayShape: const RoundSliderOverlayShape(
-                                    overlayRadius: 14),
-                                overlayColor:
-                                    violet.withValues(alpha: 0.2),
-                              ),
-                              child: Slider(
-                                min: 0,
-                                max: maxMs,
-                                value:
-                                    positionMs.clamp(0.0, maxMs).toDouble(),
-                                onChanged: (v) {
-                                  setState(() => _dragValue = v);
-                                  _requestPreview(v);
-                                },
-                                onChangeStart: (v) => _beginScrub(v),
-                                onChangeEnd: (v) {
-                                  ctrl.seekTo(
-                                      Duration(milliseconds: v.toInt()));
-                                  setState(() => _dragValue = null);
-                                  _endScrub();
-                                },
-                              ),
-                            ),
-                            if (_scrubbing && _previewMs != null)
-                              Positioned(
-                                left: left,
-                                bottom: 30,
-                                child: _buildPreviewBubble(_previewMs!),
-                              ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                  // 时间
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      children: [
-                        Text(_fmt(pos),
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600)),
-                        const Spacer(),
-                        Text(_fmt(ctrl.value.duration),
-                            style: const TextStyle(
-                                color: Color(0xB3FFFFFF),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  // 浮动胶囊控制条
-                  Center(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.55),
-                          borderRadius: BorderRadius.circular(30),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _mpvBarIcon(
-                              Icons.skip_previous_rounded,
-                              hasPrev
-                                  ? () => _switchEpisode(_episodeIndex - 1)
-                                  : null,
-                            ),
-                            _mpvBarIcon(
-                              value.isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                              _togglePlay,
-                              size: 30,
-                            ),
-                            _mpvBarIcon(
-                              Icons.skip_next_rounded,
-                              hasNext ? _nextEpisode : null,
-                            ),
-                            _mpvDivider(),
-                            _mpvBarIcon(
-                              Icons.subtitles_outlined,
-                              () {
-                                setState(() => DanmakuService.enabled =
-                                    !DanmakuService.enabled);
-                                _toast(DanmakuService.enabled
-                                    ? '弹幕已开启'
-                                    : '弹幕已关闭');
-                              },
-                              active: DanmakuService.enabled,
-                            ),
-                            _v3SpeedButton(ctrl),
-                            _mpvBarIcon(Icons.audiotrack_rounded,
-                                () => _showMpvAudio(ctrl)),
-                            _mpvBarIcon(Icons.closed_caption_outlined,
-                                () => _showMpvSubtitle(ctrl)),
-                            _mpvDivider(),
-                            _mpvBarIcon(Icons.video_collection_outlined,
-                                _showEpisodeSheet),
-                            _mpvBarIcon(Icons.tune_rounded,
-                                () => _showMpvMore(ctrl)),
-                            _mpvBarIcon(
-                              _fullscreen
-                                  ? Icons.fullscreen_exit_rounded
-                                  : Icons.fullscreen_rounded,
-                              _toggleFullscreen,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// MPV 顶部圆形按钮（毛玻璃黑底）
-  Widget _mpvCircleBtn(IconData icon, VoidCallback onTap) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.45),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(9),
-          child: Icon(icon, color: Colors.white, size: 18),
-        ),
-      ),
-    );
-  }
-
-  /// MPV 胶囊控制条内的图标按钮
-  Widget _mpvBarIcon(IconData icon, VoidCallback? onTap,
-      {double size = 22, bool active = false}) {
-    const violet = Color(0xFFA78BFA);
-    return IconButton(
-      onPressed: onTap,
-      splashRadius: 20,
-      padding: const EdgeInsets.all(8),
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-      icon: Icon(
-        icon,
-        size: size,
-        color: onTap == null
-            ? const Color(0x4DFFFFFF)
-            : (active ? violet : Colors.white),
-      ),
-    );
-  }
-
-  Widget _mpvDivider() {
-    return Container(
-      width: 1,
-      height: 20,
-      margin: const EdgeInsets.symmetric(horizontal: 2),
-      color: Colors.white.withValues(alpha: 0.15),
-    );
-  }
-
-  /// MPV 标题栏连击 5 次 → 弹幕接口设置
-  int _mpvTitleTaps = 0;
-  Timer? _mpvTitleTapTimer;
-
-  void _onMpvTitleTap() {
-    _mpvTitleTaps++;
-    _mpvTitleTapTimer?.cancel();
-    if (_mpvTitleTaps >= 5) {
-      _mpvTitleTaps = 0;
-      Get.to(() => const DanmakuApiPage());
-      return;
-    }
-    if (_mpvTitleTaps >= 3) {
-      _toast('再点 ${5 - _mpvTitleTaps} 次打开弹幕接口设置');
-    }
-    _mpvTitleTapTimer = Timer(const Duration(milliseconds: 800), () {
-      _mpvTitleTaps = 0;
-    });
-  }
-
-  /// MPV「更多」功能菜单（硬解 / 插帧 / 循环 / 画面 / 弹幕接口等）
-  Future<void> _showMpvMore(dynamic ctrl) async {
-    _hideTimer?.cancel();
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF1E1B3A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: StatefulBuilder(
-            builder: (ctx, setSheet) {
-              Widget item(IconData icon, String label,
-                  {bool active = false, VoidCallback? onTap}) {
-                const violet = Color(0xFFA78BFA);
-                return ListTile(
-                  dense: true,
-                  leading: Icon(icon,
-                      size: 20,
-                      color: active ? violet : Colors.white70),
-                  title: Text(label,
-                      style: TextStyle(
-                          color: active ? violet : Colors.white,
-                          fontSize: 13)),
-                  trailing: active
-                      ? const Icon(Icons.check_circle,
-                          color: violet, size: 16)
-                      : null,
-                  onTap: onTap,
-                );
-              }
-
-              return SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
-                      child: Row(
-                        children: [
-                          Text('播放设置',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                    item(Icons.swap_vert_circle_outlined, '换源',
-                        onTap: _switching
-                            ? null
-                            : () {
-                                Navigator.of(ctx).pop();
-                                _switchSource();
-                              }),
-                    item(Icons.video_collection_outlined, '选集', onTap: () {
-                      Navigator.of(ctx).pop();
-                      _showEpisodeSheet();
-                    }),
-                    item(Icons.memory, _hwDecode ? '硬解（已开启）' : '硬解（已关闭）',
-                        active: _hwDecode, onTap: () {
-                      _toggleMpvHwDecode();
-                      setSheet(() {});
-                    }),
-                    item(Icons.speed, _mpvInterpolation ? '插帧（已开启）' : '插帧（已关闭）',
-                        active: _mpvInterpolation, onTap: () {
-                      _toggleMpvInterpolation();
-                      setSheet(() {});
-                    }),
-                    item(Icons.loop,
-                        ctrl.value.isLooping ? '单集循环（已开启）' : '单集循环（已关闭）',
-                        active: ctrl.value.isLooping, onTap: () {
-                      ctrl.setLooping(!ctrl.value.isLooping);
-                      setState(() {});
-                      setSheet(() {});
-                    }),
-                    item(Icons.tonality_outlined, '画质增强：${_qualityName}',
-                        active: _quality != 0, onTap: () {
-                      _selectQuality((_quality + 1) % 4);
-                      setSheet(() {});
-                    }),
-                    item(Icons.subtitles_outlined, '弹幕接口管理', onTap: () {
-                      Navigator.of(ctx).pop();
-                      Get.to(() => const DanmakuApiPage());
-                    }),
-                    item(Icons.info_outline_rounded, 'MPV 播放参数',
-                        onTap: () {
-                      Navigator.of(ctx).pop();
-                      _showMpvInfo(ctrl);
-                    }),
-                    const SizedBox(height: 10),
-                  ],
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  void _toggleMpvHwDecode() {
-    final ctrl = _videoCtrl;
-    if (ctrl is! MpvPlayerAdapter) return;
-    setState(() => _hwDecode = !_hwDecode);
-    ctrl.setProperty('hwdec', _hwDecode ? 'auto-safe' : 'no');
-    _toast(_hwDecode ? 'MPV 已启用硬件解码' : 'MPV 已切换为软件解码');
-  }
-
-  void _toggleMpvInterpolation() {
-    final ctrl = _videoCtrl;
-    if (ctrl is! MpvPlayerAdapter) return;
-    setState(() => _mpvInterpolation = !_mpvInterpolation);
-    ctrl.setProperty('video-sync',
-        _mpvInterpolation ? 'display-resample' : 'audio');
-    ctrl.setProperty('interpolation', _mpvInterpolation ? 'yes' : 'no');
-    if (_mpvInterpolation) ctrl.setProperty('tscale', 'oversample');
-    _toast(_mpvInterpolation ? '已开启 MPV 插帧（需设备支持）' : '已关闭 MPV 插帧');
-  }
-
-  String _mpvTrackLabel(String id, String? title, String? language,
-      String? codec, String? channels) {
-    final parts = <String>[];
-    parts.add(title?.isNotEmpty == true ? title! : '轨道 $id');
-    if (language != null && language.isNotEmpty) parts.add(language);
-    if (codec != null && codec.isNotEmpty) parts.add(codec);
-    if (channels != null && channels.isNotEmpty) parts.add(channels);
-    return parts.join(' · ');
-  }
-
-  Future<void> _showMpvAudio(dynamic ctrl) async {
-    if (ctrl is! MpvPlayerAdapter) return;
-    final tracks = ctrl.audioTracks;
-    if (tracks.isEmpty) {
-      _toast('当前视频只有一个音轨');
-      return;
-    }
-    _hideTimer?.cancel();
-    final current = ctrl.currentAudioTrack.id;
-    final selected = await showModalBottomSheet<AudioTrack>(
-      context: context,
-      backgroundColor: const Color(0xFF1E1B3A),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
-              child: Row(
-                children: [
-                  Text('选择音轨',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-            ...tracks.map((t) => ListTile(
-                  dense: true,
-                  title: Text(
-                    _mpvTrackLabel(
-                        t.id, t.title, t.language, t.codec, t.channels),
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
-                  ),
-                  trailing: current == t.id
-                      ? const Icon(Icons.check,
-                          color: Color(0xFFA78BFA), size: 18)
-                      : null,
-                  onTap: () => Navigator.of(ctx).pop(t),
-                )),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (selected != null) {
-      await ctrl.selectAudio(selected);
-      if (mounted) setState(() {});
-    }
-  }
-
-  Future<void> _showMpvSubtitle(dynamic ctrl) async {
-    if (ctrl is! MpvPlayerAdapter) return;
-    final tracks = ctrl.subtitleTracks;
-    _hideTimer?.cancel();
-    final current = ctrl.currentSubtitleTrack.id;
-    final selected = await showModalBottomSheet<SubtitleTrack>(
-      context: context,
-      backgroundColor: const Color(0xFF1E1B3A),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
-              child: Row(
-                children: [
-                  Text('选择字幕',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-            ListTile(
-              dense: true,
-              title: const Text('关闭字幕',
-                  style: TextStyle(color: Colors.white, fontSize: 13)),
-              trailing: current == 'no'
-                  ? const Icon(Icons.check, color: Color(0xFFA78BFA), size: 18)
-                  : null,
-              onTap: () => Navigator.of(ctx).pop(SubtitleTrack.no()),
-            ),
-            ...tracks.map((t) => ListTile(
-                  dense: true,
-                  title: Text(
-                    _mpvTrackLabel(
-                        t.id, t.title, t.language, t.codec, t.channels),
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
-                  ),
-                  trailing: current == t.id
-                      ? const Icon(Icons.check,
-                          color: Color(0xFFA78BFA), size: 18)
-                      : null,
-                  onTap: () => Navigator.of(ctx).pop(t),
-                )),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (selected != null) {
-      await ctrl.selectSubtitle(selected);
-      if (mounted) setState(() {});
-    }
-  }
-
-  Future<void> _showMpvInfo(dynamic ctrl) async {
-    final value = ctrl.value;
-    final size = value.size;
-    final mpv = ctrl is MpvPlayerAdapter ? ctrl : null;
-    final rows = <String, String>{
-      '播放内核': 'MPV（libmpv）/ media_kit',
-      '影片': widget.vodName.isEmpty ? (_episode?.name ?? '') : widget.vodName,
-      '剧集': _episode?.name ?? '',
-      '线路': widget.lineName.isEmpty ? '默认线路' : widget.lineName,
-      '来源': _sourceName.isEmpty ? '未知' : _sourceName,
-      '分辨率': size.width > 0
-          ? '${size.width.toInt()} × ${size.height.toInt()}'
-          : '画质自适应',
-      '时长': _fmt(value.duration),
-      '倍速': '${_speed}x',
-      '解码': _hwDecode ? '硬件解码（hwdec=auto-safe）' : '软件解码',
-      '插帧': _mpvInterpolation ? '已开启' : '已关闭',
-      '循环': value.isLooping ? '单集循环' : '关闭',
-      '音轨': '${mpv?.audioTracks.length ?? 0} 条',
-      '字幕': '${mpv?.subtitleTracks.length ?? 0} 条',
-    };
-    await Get.dialog(
-      AlertDialog(
-        backgroundColor: const Color(0xFF1E1B3A),
-        title: const Text('MPV 播放参数', style: TextStyle(color: Colors.white)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: rows.entries
-                .map((e) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 72,
-                            child: Text(e.key,
-                                style: const TextStyle(
-                                    color: GlassTheme.textMuted, fontSize: 12)),
-                          ),
-                          Expanded(
-                            child: Text(e.value,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 12)),
-                          ),
-                        ],
-                      ),
-                    ))
-                .toList(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Get.back(),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
   /// PotPlayer 风格底部控制条（极简黑色）
   Widget _buildSimpleControls(
-      dynamic ctrl, double positionMs, double maxMs) {
+      VideoPlayerController ctrl, double positionMs, double maxMs) {
     final playing = ctrl.value.isPlaying;
     final barColor = const Color(0xE6111118);
     final blue = const Color(0xFF3FA9FF);
@@ -2575,7 +1851,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 哔哩哔哩风格控制栏（横屏，播放器内可选集 / 倍速）
   Widget _buildBiliControls(
-      dynamic ctrl, double positionMs, double maxMs) {
+      VideoPlayerController ctrl, double positionMs, double maxMs) {
     final playing = ctrl.value.isPlaying;
     const pink = Color(0xFFFB7299);
     final pos = Duration(milliseconds: positionMs.toInt());

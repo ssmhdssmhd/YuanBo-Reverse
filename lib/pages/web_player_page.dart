@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -47,18 +45,14 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
 
   Future<void> _init() async {
     await WebPlayService.load();
-    if (!mounted) return;
-    // 先用本地已有接口立即加载，避免等仓库同步（最长 6 秒）出现空白 / 错误页
-    final api = WebPlayService.defaultApi ?? WebPlayService.fallback;
-    _load(api);
-    // 后台拉取仓库最新配置，不阻塞首屏
-    unawaited(_syncQuietly());
-  }
-
-  Future<void> _syncQuietly() async {
+    // 每次进入都拉取最新仓库配置，保证接口列表完整、默认接口可用
     try {
       await WebPlayService.sync();
     } catch (_) {}
+    if (!mounted) return;
+    final api = WebPlayService.defaultApi ?? WebPlayService.fallback;
+    setState(() => _api = api);
+    _load(api);
   }
 
   void _load(WebPlayApi api) {

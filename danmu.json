@@ -1,8 +1,0 @@
-{
-  "apis": [
-    {
-      "name": "弹弹play",
-      "url": "https://api.dandanplay.net/api/v2/search/episodes?anime={url}"
-    }
-  ]
-}
