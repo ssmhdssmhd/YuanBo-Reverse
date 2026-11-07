@@ -108,6 +108,9 @@ class _PlayerPageState extends State<PlayerPage> {
   double? _previewMs;
   Timer? _previewThrottle;
   Timer? _previewDisposeTimer;
+
+  /// 播放器 4 拖动进度条时，主画面跟随定位的节流器
+  Timer? _scrubSeek;
   String _playUrl = '';
 
   bool _controlsVisible = true;
@@ -259,6 +262,13 @@ class _PlayerPageState extends State<PlayerPage> {
         _controlsVisible = true;
       });
       _scheduleHide();
+      // 提前创建进度预览控制器，保证第一次拖动进度条就能看到缩略图
+      if (_style == SettingsService.playerBili ||
+          _style == SettingsService.playerV4) {
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted && _ready) _ensurePreview();
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -957,6 +967,14 @@ class _PlayerPageState extends State<PlayerPage> {
   void _requestPreview(double ms) {
     if (!_scrubbing) return;
     setState(() => _previewMs = ms);
+    // 播放器 4：拖动时主画面同步跟随，滑动即可查看不同进度
+    if (_style == SettingsService.playerV4) {
+      _scrubSeek?.cancel();
+      _scrubSeek = Timer(const Duration(milliseconds: 150), () {
+        if (!mounted) return;
+        _videoCtrl?.seekTo(Duration(milliseconds: ms.toInt()));
+      });
+    }
     final c = _previewCtrl;
     if (!_previewReady || c == null) return;
     _previewThrottle?.cancel();
@@ -971,6 +989,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   void _endScrub() {
     _previewThrottle?.cancel();
+    _scrubSeek?.cancel();
     setState(() => _scrubbing = false);
     _previewDisposeTimer?.cancel();
     _previewDisposeTimer = Timer(const Duration(seconds: 12), _disposePreview);
@@ -979,6 +998,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   void _disposePreview() {
     _previewThrottle?.cancel();
+    _scrubSeek?.cancel();
     _previewDisposeTimer?.cancel();
     final c = _previewCtrl;
     _previewCtrl = null;
@@ -1483,10 +1503,13 @@ class _PlayerPageState extends State<PlayerPage> {
       {required Color color, bool showPreview = true}) {
     return LayoutBuilder(
       builder: (ctx, box) {
-        final fraction = maxMs > 0
-            ? ((_previewMs ?? positionMs) / maxMs).clamp(0.0, 1.0)
-            : 0.0;
-        const bubbleW = 168.0;
+        // 拖动时以手指位置为准，松手后回到真实播放进度
+        final cur = (_dragValue ?? positionMs)
+            .clamp(0.0, maxMs <= 0 ? 1.0 : maxMs)
+            .toDouble();
+        final fraction =
+            maxMs > 0 ? ((_previewMs ?? cur) / maxMs).clamp(0.0, 1.0) : 0.0;
+        const bubbleW = 152.0;
         final maxLeft = (box.maxWidth - bubbleW).clamp(0.0, double.infinity);
         final left = ((box.maxWidth - bubbleW) * fraction).clamp(0.0, maxLeft);
         return Stack(
@@ -1507,7 +1530,7 @@ class _PlayerPageState extends State<PlayerPage> {
               child: Slider(
                 min: 0,
                 max: maxMs <= 0 ? 1 : maxMs,
-                value: positionMs.clamp(0.0, maxMs <= 0 ? 1 : maxMs).toDouble(),
+                value: cur,
                 onChanged: (v) {
                   setState(() => _dragValue = v);
                   if (showPreview) _requestPreview(v);
