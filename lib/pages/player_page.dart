@@ -16,6 +16,7 @@ import 'package:yuanbo/pages/cast_page.dart';
 import 'package:yuanbo/pages/danmaku_api_page.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/parse_api_page.dart';
+import 'package:yuanbo/pages/web_play_api_page.dart';
 import 'package:yuanbo/pages/web_player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/services/danmaku_service.dart';
@@ -88,6 +89,9 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 观看历史：续播位置是否已应用 / 上次写入时间
   bool _resumeApplied = false;
   int _lastHistorySave = 0;
+
+  /// 自动兜底网页播放防重入（避免错误流重复触发连续跳转）
+  bool _webFallbacking = false;
 
   // 亮度 / 音量手势（播放器 2）
   double _brightness = -1;
@@ -188,6 +192,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _videoCtrl?.removeListener(_onTick);
     _videoCtrl?.dispose();
     _videoCtrl = null;
+    _webFallbacking = false;
     _disposePreview();
     _setKeepScreenOn(false);
 
@@ -208,14 +213,17 @@ class _PlayerPageState extends State<PlayerPage> {
       );
       if (!mounted) return;
       if (resolved == null) {
+        if (mounted) setState(() => _parsing = false);
+        // 解析失败先自动进入网页播放，不要先停在错误页
+        final opened = await _openWebPlay(target);
+        if (!mounted) return;
         setState(() {
-          _parsing = false;
-          _error = ParseService.count == 0
-              ? '该视频来自平台播放页，尚未配置 JSON 解析接口，已尝试用网页播放打开。\n'
-                  '也可在「播放器源 → 视频解析」添加解析接口。'
-              : '平台视频解析失败，已尝试用网页播放打开；也可检查解析接口或更换资源站。';
+          _error = opened
+              ? '平台视频解析失败，已用网页播放打开。\n可检查「视频解析」接口，或返回后改用其它资源站。'
+              : (ParseService.count == 0
+                  ? '该视频来自平台播放页，尚未配置 JSON 解析接口。\n可在「播放器源 → 视频解析」添加解析接口。'
+                  : '平台视频解析失败。\n可检查解析接口、改用网页播放，或更换资源站。');
         });
-        await _openWebPlay(target, auto: true);
         return;
       }
       target = resolved;
@@ -256,6 +264,21 @@ class _PlayerPageState extends State<PlayerPage> {
       }
       _videoCtrl = ctrl;
       ctrl.addListener(_onTick);
+      // MPV 起播错误走异步错误流，同样自动兜底到网页播放
+      if (ctrl is MpvPlayerAdapter) {
+        ctrl.player.stream.error
+            .firstWhere((e) => e.trim().isNotEmpty)
+            .then((e) async {
+          if (!mounted || _videoCtrl != ctrl || _webFallbacking) return;
+          _webFallbacking = true;
+          final opened = await _openWebPlay(ep.url);
+          _webFallbacking = false;
+          if (!mounted) return;
+          setState(() => _error = opened
+              ? '当前线路无法播放，已用网页播放打开。\n可返回后切换剧集或更换资源站。'
+              : e);
+        }).catchError((Object _) {});
+      }
       await ctrl.play();
       _setKeepScreenOn(true);
       _recordHistory();
@@ -266,7 +289,13 @@ class _PlayerPageState extends State<PlayerPage> {
       });
       _scheduleHide();
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (!mounted) return;
+      // 解析出地址却播不了（失效 / 403 / 格式不支持）：同样自动兜底到网页播放
+      final opened = await _openWebPlay(ep.url);
+      if (!mounted) return;
+      setState(() => _error = opened
+          ? '当前线路无法播放，已用网页播放打开。\n可返回后切换剧集或更换资源站。'
+          : e.toString());
     }
   }
 
@@ -669,18 +698,35 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   /// 网页播放：App 内置 WebView 打开「接口地址 + 播放页地址」，不跳浏览器
-  Future<void> _openWebPlay(String videoUrl, {bool auto = false}) async {
+  ///
+  /// 返回是否成功进入网页播放页。接口列表为空时会先拉取仓库配置，
+  /// 仍然没有接口则引导用户去添加，避免自动跳转「静默失败」停在错误页。
+  Future<bool> _openWebPlay(String videoUrl) async {
     await WebPlayService.load();
     if (WebPlayService.count == 0) {
-      if (!auto) _toast('请先在「播放器源 → 网页播放接口」添加接口');
-      return;
+      // 首次安装 / 本地未缓存：先并发拉取仓库 webplay.json
+      try {
+        await WebPlayService.sync();
+      } catch (_) {}
     }
-    if (!mounted) return;
+    if (WebPlayService.count == 0) {
+      if (!mounted) return false;
+      _toast('未配置网页播放接口，请先添加一个接口');
+      Get.to(() => const WebPlayApiPage());
+      return false;
+    }
+    if (!mounted) return false;
     _setKeepScreenOn(false);
-    await Get.to(() => WebPlayerPage(
-          pageUrl: videoUrl,
-          title: '${widget.vodName} ${_episode?.name ?? ''}'.trim(),
-        ));
+    try {
+      await Get.to(() => WebPlayerPage(
+            pageUrl: videoUrl,
+            title: '${widget.vodName} ${_episode?.name ?? ''}'.trim(),
+          ));
+      return true;
+    } catch (e) {
+      if (mounted) _toast('网页播放打开失败：$e');
+      return false;
+    }
   }
 
   /// 切换资源站：按片名在其他源重新搜索并续播当前集
@@ -1161,7 +1207,7 @@ class _PlayerPageState extends State<PlayerPage> {
               onPressed: () {
                 final ep = _episode;
                 if (ep == null) return;
-                _openWebPlay(ep.url);
+                unawaited(_openWebPlay(ep.url));
               },
               icon: const Icon(Icons.language, color: GlassTheme.accent),
               label: const Text('网页播放',
