@@ -5,4 +5,5 @@
 西瓜资源|https://caiji.xgzyapi.com/api.php/provide/vod/
 天堂资源|https://caiji.dyttzyapi.com/api.php/provide/vod/
 金蟾官方资源|https://zy.jinchanjiexi.net/api.php/provide/vod/
-广告线路极速|https://jszyapi.com/api.php/provide/vod
+广告线路极速|https://jszyapi.com/api.php/provide/vod/
+广告线路暴风|https://bfzyapi.com/api.php/provide/vod/
