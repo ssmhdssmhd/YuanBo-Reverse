@@ -22,7 +22,10 @@ class SettingsService {
   /// 网页播放入口（JSON 解析失败时自动调用）
   static const String defaultWebPlayUrl = 'https://ssmhd.com/?url=';
 
-  static int _playerStyle = playerSimple;
+  static int _playerStyle = playerV4;
+
+  /// 用户是否主动选择过播放器样式（未选择时默认播放器 4）
+  static bool _playerStyleChosen = false;
   static String _webPlayUrl = defaultWebPlayUrl;
   static bool _showSearch = true;
   static int _quality = 0;
@@ -42,6 +45,7 @@ class SettingsService {
 
   static Future<void> setPlayerStyle(int style) async {
     _playerStyle = style;
+    _playerStyleChosen = true;
     _loaded = true;
     await _save();
   }
@@ -97,8 +101,13 @@ class SettingsService {
       if (await file.exists()) {
         final data = jsonDecode(await file.readAsString());
         if (data is Map) {
-          if (data['playerStyle'] is int) {
-            _playerStyle = data['playerStyle'] as int;
+          _playerStyleChosen = data['playerStyleChosen'] == true;
+          // 用户从未主动切换过播放器时，默认使用播放器 4（MPV）
+          if (_playerStyleChosen && data['playerStyle'] is int) {
+            _playerStyle =
+                (data['playerStyle'] as int).clamp(0, playerV4).toInt();
+          } else {
+            _playerStyle = playerV4;
           }
           if (data['webPlayUrl'] is String) {
             final url = (data['webPlayUrl'] as String).trim();
@@ -125,6 +134,7 @@ class SettingsService {
       final file = await _file();
       await file.writeAsString(jsonEncode({
         'playerStyle': _playerStyle,
+        'playerStyleChosen': _playerStyleChosen,
         'webPlayUrl': _webPlayUrl,
         'showSearch': _showSearch,
         'quality': _quality,

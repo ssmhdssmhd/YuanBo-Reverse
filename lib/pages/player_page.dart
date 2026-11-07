@@ -1335,6 +1335,9 @@ class _PlayerPageState extends State<PlayerPage> {
                     style: const TextStyle(color: Colors.white, fontSize: 13)),
               ),
             ),
+          // 播放器 4：左右两侧开关锁按钮（始终显示，锁定时改写解锁层）
+          if (_style == SettingsService.playerV4 && !_locked)
+            _buildSideLocks(),
           if (_locked) _buildLockOverlay(),
         ],
       ),
@@ -1703,6 +1706,9 @@ class _PlayerPageState extends State<PlayerPage> {
                 ],
               ),
             ),
+            Positioned.fill(
+              child: Center(child: _buildMpvCenter(ctrl)),
+            ),
           ],
         ),
       ),
@@ -1807,6 +1813,9 @@ class _PlayerPageState extends State<PlayerPage> {
                 ],
               ),
             ),
+            Positioned.fill(
+              child: Center(child: _buildMpvCenter(ctrl)),
+            ),
           ],
         ),
       ),
@@ -1900,6 +1909,85 @@ class _PlayerPageState extends State<PlayerPage> {
                 ],
               ),
             ),
+          ),
+          Positioned.fill(
+            child: Center(child: _buildMpvCenter(ctrl)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 画面中央的五个快捷按钮（上一集 / -10s / 播放暂停 / +10s / 下一集）
+  Widget _buildMpvCenter(dynamic ctrl) {
+    final playing = ctrl.value.isPlaying == true;
+    Widget btn(IconData icon, VoidCallback onTap, double size) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        // 双击任意中央按钮直接暂停 / 播放
+        onDoubleTap: _togglePlay,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Icon(icon,
+              size: size, color: Colors.white.withValues(alpha: 0.92)),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        btn(Icons.skip_previous_rounded, () {
+          if (_episodeIndex > 0) _switchEpisode(_episodeIndex - 1);
+        }, 34),
+        btn(Icons.replay_10_rounded,
+            () => _seekBy(const Duration(seconds: -10)), 34),
+        btn(playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            _togglePlay, 48),
+        btn(Icons.forward_10_rounded,
+            () => _seekBy(const Duration(seconds: 10)), 34),
+        btn(Icons.skip_next_rounded, _nextEpisode, 34),
+      ],
+    );
+  }
+
+  /// 播放器 4：画面左右两侧的开关锁按钮（未锁定时显示）
+  Widget _buildSideLocks() {
+    Widget lock() {
+      return GestureDetector(
+        onTap: _toggleLock,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.3),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Icon(
+            _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+      );
+    }
+
+    return Positioned.fill(
+      child: Stack(
+        children: [
+          Positioned(
+            left: 10,
+            top: 0,
+            bottom: 0,
+            child: Center(child: lock()),
+          ),
+          Positioned(
+            right: 10,
+            top: 0,
+            bottom: 0,
+            child: Center(child: lock()),
           ),
         ],
       ),
