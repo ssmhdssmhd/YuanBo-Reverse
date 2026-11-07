@@ -20,7 +20,13 @@ class MpvPlayerAdapter extends ChangeNotifier {
     _ensureShared();
     player = _sharedPlayer!;
     videoController = _sharedController!;
+    _mySeq = ++_seq;
   }
+
+  /// 换集时旧适配器先 dispose、新适配器紧接着 open，
+  /// 用递增序号判断是否已有新实例接管，避免 stop 打断新的 open。
+  static int _seq = 0;
+  late final int _mySeq;
 
   final String url;
   late final Player player;
@@ -42,8 +48,8 @@ class MpvPlayerAdapter extends ChangeNotifier {
     MediaKit.ensureInitialized();
     final p = Player(
       configuration: PlayerConfiguration(
-        // 大缓冲，网络流起播后更稳
-        bufferSize: 128 * 1024 * 1024,
+        // 缓冲适中即可，过大会拖慢首次初始化
+        bufferSize: 32 * 1024 * 1024,
         logLevel: MPVLogLevel.error,
       ),
     );
@@ -60,20 +66,22 @@ class MpvPlayerAdapter extends ChangeNotifier {
       'hwdec': 'auto-safe',
       // 网络流缓存：快速起播 + 后台持续填充
       'cache': 'yes',
-      'demuxer-readahead-secs': '20',
-      'cache-secs': '20',
-      'network-timeout': '15',
+      'demuxer-readahead-secs': '6',
+      'cache-secs': '10',
+      'network-timeout': '8',
       // 快速解码 / 快速 seek（牺牲少量画质换速度）
       'vd-lavc-fast': 'yes',
       'hr-seek': 'yes',
       'hr-seek-framedrop': 'yes',
+      // 缩短流分析时间，网络流更快出第一帧
+      'demuxer-lavf-analyzeduration': '0.5',
+      'demuxer-lavf-probesize': '500000',
       // 起播即播，不等完整元数据
       'force-seekable': 'yes',
-      'demuxer-max-bytes': '128MiB',
-      'demuxer-max-back-bytes': '64MiB',
-      // 在线视频常见兼容
+      'demuxer-max-bytes': '32MiB',
+      'demuxer-max-back-bytes': '16MiB',
+      // 在线视频常见兼容（不伪造 referrer，避免部分资源站校验失败变慢）
       'tls-verify': 'no',
-      'http-referrer': 'https://www.bilibili.com/',
     };
     final platform = p.platform;
     if (platform is NativePlayer) {
@@ -195,9 +203,15 @@ class MpvPlayerAdapter extends ChangeNotifier {
     }
     _subs.clear();
     // 内核全局复用：只停止播放，不销毁 Player，下次进入秒开
-    try {
-      player.stop();
-    } catch (_) {}
+    // 延迟到微任务再判断：换集时新适配器会在同一轮创建，
+    // 此时交给新的 open 直接覆盖，避免 stop 打断新视频导致黑屏 / 加载慢
+    final mySeq = _mySeq;
+    Future.microtask(() {
+      if (mySeq != _seq) return;
+      try {
+        player.stop();
+      } catch (_) {}
+    });
     super.dispose();
   }
 }

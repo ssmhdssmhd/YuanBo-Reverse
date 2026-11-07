@@ -90,7 +90,18 @@ class VodInfo {
         .where((l) => l.episodes.any((e) =>
             _playableUrl.hasMatch(e.url) || AppConstants.isPlatformPage(e.url)))
         .toList();
-    return playable.isNotEmpty ? playable : raw;
+    // 优先 m3u8 流媒体线路：起播快、支持边下边播，加载时间明显更短
+    final ordered = [...playable];
+    final origin = <PlayLine, int>{
+      for (var i = 0; i < ordered.length; i++) ordered[i]: i
+    };
+    ordered.sort((a, b) {
+      final am = a.episodes.any((e) => e.url.contains('.m3u8')) ? 1 : 0;
+      final bm = b.episodes.any((e) => e.url.contains('.m3u8')) ? 1 : 0;
+      if (am != bm) return bm.compareTo(am);
+      return (origin[a] ?? 0).compareTo(origin[b] ?? 0);
+    });
+    return ordered.isNotEmpty ? ordered : raw;
   }
 
   /// 解析单线路剧集（# 分隔，每集 名称$url）

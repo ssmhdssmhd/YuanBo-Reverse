@@ -1618,6 +1618,9 @@ class _PlayerPageState extends State<PlayerPage> {
         ? (_episode?.name ?? '')
         : '${widget.vodName}：${_episode?.name ?? ''}';
     const pink = Color(0xFFFF4D6D);
+    // 竖屏时宽度有限，底部控制条改为两行，避免元素挤压溢出
+    final isPortrait =
+        MediaQuery.of(context).orientation == Orientation.portrait;
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -1658,15 +1661,16 @@ class _PlayerPageState extends State<PlayerPage> {
                 ],
               ),
             ),
-            // 左下：文件名（对应预览图的文件标题）
-            Positioned(
-              left: 14,
-              bottom: 52,
-              child: Text(
-                _episode?.name ?? '',
-                style: const TextStyle(color: Colors.white54, fontSize: 11),
+            // 左下：文件名（横屏显示，竖屏空间不足时隐藏）
+            if (!isPortrait)
+              Positioned(
+                left: 14,
+                bottom: 52,
+                child: Text(
+                  _episode?.name ?? '',
+                  style: const TextStyle(color: Colors.white54, fontSize: 11),
+                ),
               ),
-            ),
             Positioned(
               left: 0,
               right: 0,
@@ -1678,54 +1682,109 @@ class _PlayerPageState extends State<PlayerPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: _mpvProgress(ctrl, positionMs, maxMs, color: pink),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 0, 8, 2),
-                    child: Row(
-                      children: [
-                        _mpvIcon(Icons.menu_rounded, _showMpvMenu),
-                        _mpvIcon(Icons.closed_caption_outlined,
-                            () => _showMpvSubtitle(ctrl)),
-                        const SizedBox(width: 2),
-                        _mpvVolume(pink),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${_fmt(pos)} / ${_fmt(value.duration)}',
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 11),
-                        ),
-                        const Spacer(),
-                        _mpvIcon(Icons.skip_previous_rounded, () {
-                          if (_episodeIndex > 0) {
-                            _switchEpisode(_episodeIndex - 1);
-                          }
-                        }),
-                        _mpvIcon(Icons.replay_10_rounded,
-                            () => _seekBy(const Duration(seconds: -10))),
-                        _mpvIcon(
-                          value.isPlaying
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                          _togglePlay,
-                          size: 26,
-                        ),
-                        _mpvIcon(Icons.forward_10_rounded,
-                            () => _seekBy(const Duration(seconds: 10))),
-                        _mpvIcon(Icons.skip_next_rounded, _nextEpisode),
-                        const Spacer(),
-                        _mpvIcon(
-                          Icons.speed_rounded,
-                          () => _showMpvSpeed(ctrl),
-                        ),
-                        _mpvIcon(Icons.tune_rounded, _showMpvMenu),
-                        _mpvIcon(
-                          _fullscreen
-                              ? Icons.fullscreen_exit_rounded
-                              : Icons.fullscreen_rounded,
-                          _toggleFullscreen,
-                        ),
-                      ],
+                  if (isPortrait) ...[
+                    // 竖屏第一行：菜单 / 字幕 / 时间 / 倍速 / 设置 / 全屏
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(6, 0, 6, 0),
+                      child: Row(
+                        children: [
+                          _mpvIcon(Icons.menu_rounded, _showMpvMenu),
+                          _mpvIcon(Icons.closed_caption_outlined,
+                              () => _showMpvSubtitle(ctrl)),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${_fmt(pos)} / ${_fmt(value.duration)}',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 11),
+                          ),
+                          const Spacer(),
+                          _mpvIcon(Icons.speed_rounded,
+                              () => _showMpvSpeed(ctrl)),
+                          _mpvIcon(Icons.tune_rounded, _showMpvMenu),
+                          _mpvIcon(
+                            _fullscreen
+                                ? Icons.fullscreen_exit_rounded
+                                : Icons.fullscreen_rounded,
+                            _toggleFullscreen,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                    // 竖屏第二行：播放控制居中
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _mpvIcon(Icons.skip_previous_rounded, () {
+                            if (_episodeIndex > 0) {
+                              _switchEpisode(_episodeIndex - 1);
+                            }
+                          }),
+                          _mpvIcon(Icons.replay_10_rounded,
+                              () => _seekBy(const Duration(seconds: -10))),
+                          _mpvIcon(
+                            value.isPlaying
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            _togglePlay,
+                            size: 30,
+                          ),
+                          _mpvIcon(Icons.forward_10_rounded,
+                              () => _seekBy(const Duration(seconds: 10))),
+                          _mpvIcon(Icons.skip_next_rounded, _nextEpisode),
+                        ],
+                      ),
+                    ),
+                  ] else
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 0, 8, 2),
+                      child: Row(
+                        children: [
+                          _mpvIcon(Icons.menu_rounded, _showMpvMenu),
+                          _mpvIcon(Icons.closed_caption_outlined,
+                              () => _showMpvSubtitle(ctrl)),
+                          const SizedBox(width: 2),
+                          _mpvVolume(pink),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${_fmt(pos)} / ${_fmt(value.duration)}',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 11),
+                          ),
+                          const Spacer(),
+                          _mpvIcon(Icons.skip_previous_rounded, () {
+                            if (_episodeIndex > 0) {
+                              _switchEpisode(_episodeIndex - 1);
+                            }
+                          }),
+                          _mpvIcon(Icons.replay_10_rounded,
+                              () => _seekBy(const Duration(seconds: -10))),
+                          _mpvIcon(
+                            value.isPlaying
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            _togglePlay,
+                            size: 26,
+                          ),
+                          _mpvIcon(Icons.forward_10_rounded,
+                              () => _seekBy(const Duration(seconds: 10))),
+                          _mpvIcon(Icons.skip_next_rounded, _nextEpisode),
+                          const Spacer(),
+                          _mpvIcon(
+                            Icons.speed_rounded,
+                            () => _showMpvSpeed(ctrl),
+                          ),
+                          _mpvIcon(Icons.tune_rounded, _showMpvMenu),
+                          _mpvIcon(
+                            _fullscreen
+                                ? Icons.fullscreen_exit_rounded
+                                : Icons.fullscreen_rounded,
+                            _toggleFullscreen,
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1944,6 +2003,9 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 画面中央的五个快捷按钮（上一集 / -10s / 播放暂停 / +10s / 下一集）
   Widget _buildMpvCenter(dynamic ctrl) {
     final playing = ctrl.value.isPlaying == true;
+    // 竖屏宽度较窄，缩小按钮与间距，避免与左右锁按钮重叠
+    final compact =
+        MediaQuery.of(context).orientation == Orientation.portrait;
     Widget btn(IconData icon, VoidCallback onTap, double size) {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -1951,9 +2013,11 @@ class _PlayerPageState extends State<PlayerPage> {
         // 双击任意中央按钮直接暂停 / 播放
         onDoubleTap: _togglePlay,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          padding: EdgeInsets.symmetric(
+              horizontal: compact ? 8 : 16, vertical: 4),
           child: Icon(icon,
-              size: size, color: Colors.white.withValues(alpha: 0.92)),
+              size: compact ? size * 0.8 : size,
+              color: Colors.white.withValues(alpha: 0.92)),
         ),
       );
     }
@@ -1977,12 +2041,14 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 播放器 4：画面左右两侧的开关锁按钮（未锁定时显示）
   Widget _buildSideLocks() {
+    final compact =
+        MediaQuery.of(context).orientation == Orientation.portrait;
     Widget lock() {
       return GestureDetector(
         onTap: _toggleLock,
         child: Container(
-          width: 40,
-          height: 40,
+          width: compact ? 34 : 40,
+          height: compact ? 34 : 40,
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.3),
             shape: BoxShape.circle,
@@ -2023,6 +2089,10 @@ class _PlayerPageState extends State<PlayerPage> {
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF16141F),
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.82,
+      ),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
@@ -2042,9 +2112,10 @@ class _PlayerPageState extends State<PlayerPage> {
 
         final ctrl = _videoCtrl;
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               const Padding(
                 padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
                 child: Align(
@@ -2078,6 +2149,7 @@ class _PlayerPageState extends State<PlayerPage> {
               }),
               const SizedBox(height: 8),
             ],
+            ),
           ),
         );
       },
