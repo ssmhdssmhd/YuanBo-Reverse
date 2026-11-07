@@ -6,17 +6,3 @@
 天堂资源|https://caiji.dyttzyapi.com/api.php/provide/vod/
 金蟾官方资源|https://zy.jinchanjiexi.net/api.php/provide/vod/
 广告线路新极品|https://jipinvip1.com/api.php/provide/vod/
-广告线路暴风|https://bfzyapi.com/api.php/provide/vod/
-广告如意线路|	https://cj.rycjapi.com/api.php/provide/vod/
-广告无尽线路|http://api.wujinwszy.net/api.php/provide/vod/from/wjm3u8/at/xml/
-广告天堂线路|http://caiji.dyttzyapi.com/api.php/provide/vod/
-广告卧龙线路|https://collect.wolongzy.cc/api.php/provide/vod/
-广告量子线路|https://cj.lziapi.com/api.php/provide/vod/
-广告ok线路|http://api.okzyw.net/api.php/provide/vod/
-广告最大线路|https://api.zuidapi.com/api.php/provide/vod/from/zuidam3u8/
-广告茅台线路|https://caiji.maotai999.vip/api.php/provide/vod/
-广告无水印线路|https://api.wsyzy.net/api.php/provide/vod/
-广告大众线路|https://cdn.dzzyapi.com/api.php/provide/vod/
-广告西瓜线路|https://api.wsyzy.net/api.php/provide/vod/
-广告98线路|https://98zy.vip/api.php/provide/vod/
-广告闪电线路|https://xsd.sdzyapi.com/api.php/provide/vod/
