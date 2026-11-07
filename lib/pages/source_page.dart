@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:get/get.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
@@ -17,6 +18,17 @@ class _SourcePageState extends State<SourcePage> {
   late final HomeController _c;
   bool _syncing = false;
 
+  /// 资源站测速结果：api -> 毫秒耗时（-1 表示超时 / 不可用）
+  final Map<String, int> _latency = {};
+  bool _probing = false;
+
+  final Dio _probeDio = Dio(BaseOptions(
+    connectTimeout: const Duration(seconds: 5),
+    receiveTimeout: const Duration(seconds: 8),
+    responseType: ResponseType.plain,
+    headers: const {'User-Agent': 'okhttp/3.12.13'},
+  ));
+
   @override
   void initState() {
     super.initState();
@@ -25,6 +37,66 @@ class _SourcePageState extends State<SourcePage> {
         : Get.put(HomeController());
     // 进入页面自动同步一次，仓库 zyz.txt 更新后无需手动点击
     _c.syncSources();
+  }
+
+  /// 并发探测所有资源站，测出延迟后按结果着色，方便挑出网络慢的站
+  Future<void> _probeAll() async {
+    if (_probing) return;
+    final list = List<VideoSource>.from(_c.sources);
+    if (list.isEmpty) {
+      _toast('暂无可测速的资源站');
+      return;
+    }
+    setState(() {
+      _probing = true;
+      _latency.clear();
+    });
+    await Future.wait(list.map(_probe));
+    if (!mounted) return;
+    setState(() => _probing = false);
+    final ok = _latency.values.where((v) => v > 0).length;
+    _toast('测速完成：$ok/${list.length} 个资源站可用');
+  }
+
+  Future<void> _probe(VideoSource s) async {
+    final sw = Stopwatch()..start();
+    var ms = -1;
+    try {
+      final res = await _probeDio.get<String>(
+        s.api,
+        queryParameters: const {'ac': 'list'},
+      );
+      final code = res.statusCode ?? 0;
+      if (code >= 200 && code < 400) ms = sw.elapsedMilliseconds;
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => _latency[s.api] = ms);
+  }
+
+  /// 测速徽章：<600ms 绿色、<1500ms 橙色、其余红色，超时显示「超时」
+  Widget _speedBadge(String api) {
+    final ms = _latency[api];
+    if (ms == null) return const SizedBox.shrink();
+    const green = Color(0xFF30D158);
+    const orange = Color(0xFFFF9F0A);
+    const red = Color(0xFFFF453A);
+    final color =
+        ms < 0 ? red : (ms < 600 ? green : (ms < 1500 ? orange : red));
+    final text = ms < 0 ? '超时' : '$ms ms';
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+            color: color, fontSize: 10, fontWeight: FontWeight.w600),
+      ),
+    );
   }
 
   void _toast(String msg) {
@@ -118,6 +190,18 @@ class _SourcePageState extends State<SourcePage> {
         title: const Text('视频源管理'),
         backgroundColor: Colors.transparent,
         actions: [
+          IconButton(
+            tooltip: '一键测速',
+            icon: _probing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: GlassTheme.accent),
+                  )
+                : const Icon(Icons.speed),
+            onPressed: _probing ? null : _probeAll,
+          ),
           Obx(() {
             if (_c.syncing.value || _syncing) {
               return const Padding(
@@ -291,9 +375,14 @@ class _SourcePageState extends State<SourcePage> {
                 ],
               ),
             ),
+            _speedBadge(s.api),
             if (selected)
-              const Text('使用中',
-                  style: TextStyle(color: GlassTheme.accent, fontSize: 12)),
+              const Padding(
+                padding: EdgeInsets.only(left: 6),
+                child: Text('使用中',
+                    style:
+                        TextStyle(color: GlassTheme.accent, fontSize: 12)),
+              ),
           ],
         ),
       ),

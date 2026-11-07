@@ -65,6 +65,9 @@ class _PlayerPageState extends State<PlayerPage> {
   String _sourceApi = '';
   bool _ready = false;
   String? _error;
+
+  /// 原始异常文本（用于排查，界面上以小字展示）
+  String? _errorRaw;
   bool _switching = false;
   bool _fullscreen = false;
   bool _parsing = false;
@@ -170,6 +173,7 @@ class _PlayerPageState extends State<PlayerPage> {
         _episode = ep;
         _ready = false;
         _error = null;
+        _errorRaw = null;
         _parsing = false;
       });
     }
@@ -238,8 +242,40 @@ class _PlayerPageState extends State<PlayerPage> {
       });
       _scheduleHide();
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) {
+        setState(() {
+          _errorRaw = e.toString();
+          _error = _friendlyError(e.toString());
+        });
+      }
     }
+  }
+
+  /// 把 ExoPlayer / VideoPlayer 的英文异常转成可读的中文提示
+  String _friendlyError(String raw) {
+    final s = raw.toLowerCase();
+    if (s.contains('source error') || s.contains('exoplayer')) {
+      return '当前线路的视频地址已失效或被限制访问（Source error）。\n建议切换资源站，或使用网页播放。';
+    }
+    if (s.contains('403') || s.contains('forbidden')) {
+      return '视频地址拒绝访问（403），链接可能已过期。\n建议切换资源站后重试。';
+    }
+    if (s.contains('404') || s.contains('not found')) {
+      return '视频地址不存在（404），该线路可能已失效。\n建议切换资源站。';
+    }
+    if (s.contains('timeout') || s.contains('timed out')) {
+      return '网络超时，视频加载失败。\n请检查网络后重试，或切换资源站。';
+    }
+    if (s.contains('unrecognized') || s.contains('format')) {
+      return '视频格式不受支持，当前内核无法解析。\n可尝试网页播放或更换资源站。';
+    }
+    if (s.contains('codec') || s.contains('decoder')) {
+      return '视频编码不受支持，设备无法解码。\n可尝试网页播放或更换资源站。';
+    }
+    if (s.contains('network') || s.contains('handshake') || s.contains('connection')) {
+      return '网络连接失败，无法加载视频。\n请检查网络后重试。';
+    }
+    return raw;
   }
 
   void _onTick() {
@@ -1105,9 +1141,9 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Widget _buildError() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1118,8 +1154,27 @@ class _PlayerPageState extends State<PlayerPage> {
             const SizedBox(height: 8),
             Text(_error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.5)),
+            if (_errorRaw != null && _errorRaw != _error) ...[
+              const SizedBox(height: 6),
+              Text(
+                _errorRaw!,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white24, fontSize: 9),
+              ),
+            ],
             const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () {
+                final ep = _episode;
+                if (ep != null) _initPlayer(ep);
+              },
+              icon: const Icon(Icons.refresh, color: GlassTheme.accent),
+              label: const Text('重试',
+                  style: TextStyle(color: GlassTheme.accent)),
+            ),
             TextButton.icon(
               onPressed: _switching ? null : _switchSource,
               icon: const Icon(Icons.swap_horiz, color: GlassTheme.accent),

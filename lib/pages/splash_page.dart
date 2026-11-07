@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/services/announcement_service.dart';
+import 'package:yuanbo/services/cache_service.dart';
 import 'package:yuanbo/services/history_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/update_notice_service.dart';
@@ -36,39 +37,58 @@ class _SplashPageState extends State<SplashPage>
   }
 
   Future<void> _init() async {
-    await SettingsService.getPlayerStyle();
-    await SettingsService.getShowSearch();
-    await HistoryService.load();
+    final startAt = DateTime.now();
+    // 本地读取并发执行，避免串行等待拖慢启动
+    await Future.wait<dynamic>([
+      SettingsService.getPlayerStyle(),
+      SettingsService.getShowSearch(),
+      HistoryService.load(),
+    ]);
     var version = '';
     try {
       final pkg = await PackageInfo.fromPlatform();
       version = pkg.version;
-      setState(() => _version = version);
+      if (mounted) setState(() => _version = version);
     } catch (_) {}
-    final texts = await Future.wait<String>([
-      UpdateNoticeService.load()
-          .timeout(const Duration(seconds: 8), onTimeout: () => ''),
-      AnnouncementService.load()
-          .timeout(const Duration(seconds: 8), onTimeout: () => ''),
-    ]);
-    final updateNotice = texts[0];
-    final announcement = texts[1];
-    final showUpdateNotice = await UpdateNoticeService.shouldShow(version);
-    final showAnnouncement =
-        version.isNotEmpty && await AnnouncementService.shouldShow(version);
-    await Future.delayed(const Duration(seconds: 2));
+    // 版本升级后自动清理缓存（观看历史与接口配置保留）
+    if (version.isNotEmpty) {
+      // 不阻塞启动，后台执行
+      CacheService.clearOnUpgrade(version);
+    }
+    // 启动动画最短展示时长（本地读取通常 < 200ms）
+    final elapsed = DateTime.now().difference(startAt).inMilliseconds;
+    if (elapsed < 1100) {
+      await Future.delayed(Duration(milliseconds: 1100 - elapsed));
+    }
     if (!mounted) return;
     Get.off(() => const HomePage());
-    if (showUpdateNotice) {
-      // 内置 gxgg.txt 兜底，保证每次版本更新都能弹出
-      final notice = updateNotice.isNotEmpty
-          ? updateNotice
-          : '📢 版本更新 v$version\n· 本次更新包含功能优化与问题修复';
+    // 公告 / 更新提示改为进入首页后加载，不再阻塞启动
+    _checkNotices(version);
+  }
+
+  /// 版本更新弹窗与弹出公告：进入首页后再拉取展示
+  Future<void> _checkNotices(String version) async {
+    try {
+      final texts = await Future.wait<String>([
+        UpdateNoticeService.load()
+            .timeout(const Duration(seconds: 6), onTimeout: () => ''),
+        AnnouncementService.load()
+            .timeout(const Duration(seconds: 6), onTimeout: () => ''),
+      ]);
+      final updateNotice = texts[0];
+      final announcement = texts[1];
+      final showUpdateNotice = await UpdateNoticeService.shouldShow(version);
+      final showAnnouncement = version.isNotEmpty &&
+          await AnnouncementService.shouldShow(version);
       // 等待首页挂载完成，避免弹窗因无 context 被跳过
-      for (var i = 0; i < 6 && Get.context == null; i++) {
-        await Future.delayed(const Duration(milliseconds: 300));
+      for (var i = 0; i < 10 && Get.context == null; i++) {
+        await Future.delayed(const Duration(milliseconds: 200));
       }
-      if (Get.context != null) {
+      if (showUpdateNotice && Get.context != null) {
+        // 内置 gxgg.txt 兜底，保证每次版本更新都能弹出
+        final notice = updateNotice.isNotEmpty
+            ? updateNotice
+            : '📢 版本更新 v$version\n· 本次更新包含功能优化与问题修复';
         await Get.dialog(
           UpdateNoticeDialog(content: notice, version: version),
           barrierDismissible: false,
@@ -76,17 +96,17 @@ class _SplashPageState extends State<SplashPage>
         // 用户确认关闭后才记录，避免弹窗未展示就丢失提示
         await UpdateNoticeService.markShown(version);
       }
-    }
-    if (showAnnouncement) {
-      await AnnouncementService.markShown(version);
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (Get.context != null) {
-        Get.dialog(
-          AnnouncementDialog(content: announcement),
-          barrierDismissible: false,
-        );
+      if (showAnnouncement && Get.context != null) {
+        await AnnouncementService.markShown(version);
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (Get.context != null) {
+          Get.dialog(
+            AnnouncementDialog(content: announcement),
+            barrierDismissible: false,
+          );
+        }
       }
-    }
+    } catch (_) {}
   }
 
   @override
