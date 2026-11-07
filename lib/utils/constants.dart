@@ -109,6 +109,23 @@ class AppConstants {
     ];
   }
 
+  /// 弹幕接口配置文件（仓库 danmu.json，播放器 4 使用）
+  static const String danmakuConfigPath = 'danmu.json';
+  static const String danmakuConfigRaw =
+      'https://raw.githubusercontent.com/$githubRepo/main/$danmakuConfigPath';
+
+  static List<String> danmakuConfigUrls() {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    return [
+      'https://gh-proxy.com/$danmakuConfigRaw?t=$ts',
+      'https://ghproxy.net/$danmakuConfigRaw?t=$ts',
+      'https://gh.api.99988866.xyz/$danmakuConfigRaw?t=$ts',
+      'https://mirror.ghproxy.com/$danmakuConfigRaw?t=$ts',
+      '$danmakuConfigRaw?t=$ts',
+      'https://fastly.jsdelivr.net/gh/$githubRepo@main/$danmakuConfigPath?t=$ts',
+    ];
+  }
+
   /// 版本更新公告文件（gxgg.txt，每次版本发布时更新）
   static const String updateNoticePath = 'gxgg.txt';
   static const String updateNoticeRaw =

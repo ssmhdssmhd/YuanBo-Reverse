@@ -12,7 +12,9 @@ import 'package:yuanbo/pages/settings_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/pages/update_page.dart';
 import 'package:yuanbo/services/api_service.dart';
+import 'package:yuanbo/services/danmaku_service.dart';
 import 'package:yuanbo/services/history_service.dart';
+import 'package:yuanbo/services/mpv_player_adapter.dart';
 import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/source_service.dart';
@@ -56,9 +58,14 @@ class HomeController extends GetxController {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(seconds: 2), () {
         syncSources();
-        // 解析接口 / 网页播放接口同样随仓库实时生效，无需重新编译安装
+        // 解析接口 / 网页播放接口 / 弹幕接口同样随仓库实时生效，无需重新编译安装
         ParseService.sync();
         WebPlayService.sync();
+        DanmakuService.sync();
+        // 选择了播放器 4 时提前初始化 libmpv 内核，进入播放页近乎秒开
+        if (SettingsService.currentPlayerStyle == SettingsService.playerV4) {
+          MpvPlayerAdapter.prewarm();
+        }
       });
     });
   }

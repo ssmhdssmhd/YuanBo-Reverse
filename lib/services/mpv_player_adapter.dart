@@ -9,18 +9,83 @@ import 'package:video_player/video_player.dart' show VideoPlayerValue;
 ///
 /// 对外暴露与 [VideoPlayerController] 相近的 `value` / 控制方法，
 /// 让播放器页面可以在两种内核之间复用同一套 UI 与手势逻辑。
+///
+/// 加载速度优化：
+/// - Player / VideoController 全局复用（libmpv 内核只初始化一次，
+///   换集 / 重新进入播放页只需重新 open 地址，接近秒开）；
+/// - open 前注入缓存 / 硬解 / 快速解码等 mpv 参数；
+/// - 支持 [prewarm]：首页空闲时提前初始化内核。
 class MpvPlayerAdapter extends ChangeNotifier {
   MpvPlayerAdapter(this.url) {
-    // 懒加载 libmpv：只有选择「播放器 4」时才初始化内核，避免拖慢 App 启动
-    MediaKit.ensureInitialized();
-    player = Player();
-    videoController = VideoController(player);
+    _ensureShared();
+    player = _sharedPlayer!;
+    videoController = _sharedController!;
   }
 
   final String url;
   late final Player player;
   late final VideoController videoController;
   final List<StreamSubscription<dynamic>> _subs = [];
+
+  /// 全局共享的 libmpv 内核（只创建一次，避免重复加载动态库）
+  static Player? _sharedPlayer;
+  static VideoController? _sharedController;
+  static bool _mpvReady = false;
+
+  /// 提前初始化内核（首页空闲时调用，首次进入播放页就近乎秒开）
+  static void prewarm() {
+    _ensureShared();
+  }
+
+  static void _ensureShared() {
+    if (_sharedPlayer != null) return;
+    MediaKit.ensureInitialized();
+    final p = Player(
+      configuration: PlayerConfiguration(
+        // 大缓冲，网络流起播后更稳
+        bufferSize: 128 * 1024 * 1024,
+        logLevel: MPVLogLevel.error,
+      ),
+    );
+    _sharedPlayer = p;
+    _sharedController = VideoController(p);
+    _applyStartupProperties(p);
+    _mpvReady = true;
+  }
+
+  /// 起播加速与画质参数（参考 mpv.config 的通用高质量配置）
+  static void _applyStartupProperties(Player p) {
+    final props = <String, String>{
+      // 硬件解码优先，失败自动回退软解
+      'hwdec': 'auto-safe',
+      // 网络流缓存：快速起播 + 后台持续填充
+      'cache': 'yes',
+      'demuxer-readahead-secs': '20',
+      'cache-secs': '20',
+      'network-timeout': '15',
+      // 快速解码 / 快速 seek（牺牲少量画质换速度）
+      'vd-lavc-fast': 'yes',
+      'hr-seek': 'yes',
+      'hr-seek-framedrop': 'yes',
+      // 起播即播，不等完整元数据
+      'force-seekable': 'yes',
+      'demuxer-max-bytes': '128MiB',
+      'demuxer-max-back-bytes': '64MiB',
+      // 在线视频常见兼容
+      'tls-verify': 'no',
+      'http-referrer': 'https://www.bilibili.com/',
+    };
+    final platform = p.platform;
+    if (platform is NativePlayer) {
+      for (final e in props.entries) {
+        try {
+          platform.setProperty(e.key, e.value);
+        } catch (_) {}
+      }
+    }
+  }
+
+  static bool get isPrewarmed => _mpvReady;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -67,12 +132,14 @@ class MpvPlayerAdapter extends ChangeNotifier {
     _subs.add(player.stream.width.listen((w) {
       if (w != null && w > 0) {
         _size = Size(w.toDouble(), _size.height);
+        _initialized = true;
         notifyListeners();
       }
     }));
     _subs.add(player.stream.height.listen((h) {
       if (h != null && h > 0) {
         _size = Size(_size.width, h.toDouble());
+        _initialized = true;
         notifyListeners();
       }
     }));
@@ -81,9 +148,13 @@ class MpvPlayerAdapter extends ChangeNotifier {
       _initialized = true;
       notifyListeners();
     }));
-    await player.open(Media(url), play: false);
-    _initialized = true;
-    notifyListeners();
+    // 直接起播（play: true），不等 open 完成才渲染 UI；
+    // 画面尺寸 / 时长流到达后即视为初始化完成
+    unawaited(player.open(Media(url), play: true).catchError((Object e) {
+      _error = e.toString();
+      _initialized = true;
+      notifyListeners();
+    }));
   }
 
   Future<void> play() => player.play();
@@ -123,7 +194,10 @@ class MpvPlayerAdapter extends ChangeNotifier {
       sub.cancel();
     }
     _subs.clear();
-    player.dispose();
+    // 内核全局复用：只停止播放，不销毁 Player，下次进入秒开
+    try {
+      player.stop();
+    } catch (_) {}
     super.dispose();
   }
 }

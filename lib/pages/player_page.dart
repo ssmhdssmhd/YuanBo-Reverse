@@ -13,10 +13,12 @@ import 'package:video_player/video_player.dart';
 import 'package:yuanbo/models/vod.dart';
 import 'package:yuanbo/models/watch_history.dart';
 import 'package:yuanbo/pages/cast_page.dart';
+import 'package:yuanbo/pages/danmaku_api_page.dart';
 import 'package:yuanbo/pages/home_page.dart';
 import 'package:yuanbo/pages/parse_api_page.dart';
 import 'package:yuanbo/pages/web_player_page.dart';
 import 'package:yuanbo/services/api_service.dart';
+import 'package:yuanbo/services/danmaku_service.dart';
 import 'package:yuanbo/services/history_service.dart';
 import 'package:yuanbo/services/mpv_player_adapter.dart';
 import 'package:yuanbo/services/parse_service.dart';
@@ -129,6 +131,9 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 画质增强模式（0 标准、1 鲜艳、2 明亮、3 柔和）
   int _quality = 0;
 
+  String get _qualityName =>
+      const ['标准', '鲜艳', '明亮', '柔和'][_quality.clamp(0, 3)];
+
   /// 0 = 简洁版，1 = 哔哩哔哩风格（横屏 + 播放器内选集）
   int _style = SettingsService.currentPlayerStyle;
   List<PlayEpisode> _episodes = const [];
@@ -238,8 +243,16 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!_resumeApplied &&
           widget.startPositionMs > 0 &&
           ep.url == widget.episode.url) {
-        await ctrl.seekTo(Duration(milliseconds: widget.startPositionMs));
         _resumeApplied = true;
+        final resumePos = Duration(milliseconds: widget.startPositionMs);
+        if (ctrl is MpvPlayerAdapter) {
+          // MPV 异步起播：等流真正开始播放后再定位，避免 seek 被丢弃
+          ctrl.player.stream.playing.firstWhere((p) => p).then((_) {
+            if (mounted && _videoCtrl == ctrl) ctrl.seekTo(resumePos);
+          }).catchError((_) {});
+        } else {
+          await ctrl.seekTo(resumePos);
+        }
       }
       _videoCtrl = ctrl;
       ctrl.addListener(_onTick);
@@ -1016,6 +1029,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _hintTimer?.cancel();
     _hudTimer?.cancel();
     _lockTipTimer?.cancel();
+    _mpvTitleTapTimer?.cancel();
     _recordHistory();
     _disposePreview();
     SystemLevelService.setPlaying(false);
@@ -1730,226 +1744,260 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  /// 播放器 4：MPV 风格（libmpv 内核，紫色主题）
+  /// 播放器 4：MPV modern 风格（浮动胶囊控制条，参考 mpv.config modernz 主题）
   Widget _buildMpvControls(dynamic ctrl, double positionMs, double maxMs) {
     final value = ctrl.value;
     final pos = Duration(milliseconds: positionMs.toInt());
-    final size = value.size;
-    final res = size.width > 0
-        ? '${size.width.toInt()} × ${size.height.toInt()}'
-        : '画质自适应';
     const violet = Color(0xFFA78BFA);
     final title = widget.vodName.isEmpty
         ? (_episode?.name ?? '')
         : '${widget.vodName}：${_episode?.name ?? ''}';
+    final hasPrev = _episodeIndex > 0;
+    final hasNext = _episodeIndex < _episodes.length - 1;
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            Color(0xC0000000),
+            Color(0x90000000),
             Color(0x00000000),
             Color(0x00000000),
-            Color(0xE0100E1C),
+            Color(0x90000000),
           ],
-          stops: [0.0, 0.18, 0.62, 1.0],
+          stops: [0.0, 0.16, 0.7, 1.0],
         ),
       ),
       child: SafeArea(
         child: Stack(
           children: [
-            // 顶部信息栏
+            // 顶部：返回 + 标题胶囊（标题连击 5 次打开弹幕接口设置）
             Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(2, 2, 8, 0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back_ios_new,
-                          color: Colors.white, size: 20),
-                      onPressed: () => Get.back(),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 1),
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: violet),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  'MPV',
-                                  style: TextStyle(
-                                      color: violet,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1),
-                                ),
+              left: 8,
+              right: 8,
+              top: 4,
+              child: Row(
+                children: [
+                  _mpvCircleBtn(
+                      Icons.arrow_back_ios_new, () => Get.back()),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: _onMpvTitleTap,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.08)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: violet),
+                                borderRadius: BorderRadius.circular(4),
                               ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600),
-                                ),
+                              child: const Text(
+                                'MPV',
+                                style: TextStyle(
+                                    color: violet,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '$res · libmpv',
-                            style: const TextStyle(
-                                color: Color(0xB3FFFFFF), fontSize: 11),
-                          ),
-                        ],
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    _v3TopIcon(Icons.info_outline_rounded,
-                        () => _showMpvInfo(ctrl)),
-                    _v3TopIcon(Icons.settings_rounded,
-                        () => Get.to(() => const ParseApiPage())),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  _mpvCircleBtn(
+                      Icons.tune_rounded, () => _showMpvMore(ctrl)),
+                ],
               ),
             ),
-            // 中央播放 / 暂停
-            Center(
-              child: IconButton(
-                iconSize: 52,
-                splashRadius: 30,
-                onPressed: _togglePlay,
-                icon: Icon(
-                  value.isPlaying
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-            // 右侧快捷栏
+            // 右侧：锁定
             Positioned(
-              right: 2,
+              right: 8,
               top: 0,
               bottom: 0,
               child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _v3Rail(
-                      _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                      _locked ? '解锁' : '锁定',
-                      _toggleLock,
-                    ),
-                    const SizedBox(height: 22),
-                    _v3Rail(Icons.screen_rotation_rounded, '旋转',
-                        _toggleFullscreen),
-                  ],
+                child: _mpvCircleBtn(
+                  _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                  _toggleLock,
                 ),
               ),
             ),
-            // 底部进度条 + 工具栏
+            // 底部：缩略图预览 + 进度条 + 浮动胶囊控制条
             Positioned(
               left: 0,
               right: 0,
-              bottom: 0,
+              bottom: 10,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // 进度条（拖动时显示缩略图预览）
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: LayoutBuilder(
+                      builder: (ctx, constraints) {
+                        final fraction = maxMs > 0
+                            ? ((_previewMs ?? positionMs) / maxMs)
+                                .clamp(0.0, 1.0)
+                            : 0.0;
+                        const bubbleW = 176.0;
+                        final left =
+                            ((constraints.maxWidth - bubbleW) * fraction)
+                                .clamp(0.0, constraints.maxWidth - bubbleW);
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 2.5,
+                                activeTrackColor: violet,
+                                inactiveTrackColor:
+                                    Colors.white.withValues(alpha: 0.28),
+                                thumbColor: violet,
+                                thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 5.5),
+                                overlayShape: const RoundSliderOverlayShape(
+                                    overlayRadius: 14),
+                                overlayColor:
+                                    violet.withValues(alpha: 0.2),
+                              ),
+                              child: Slider(
+                                min: 0,
+                                max: maxMs,
+                                value:
+                                    positionMs.clamp(0.0, maxMs).toDouble(),
+                                onChanged: (v) {
+                                  setState(() => _dragValue = v);
+                                  _requestPreview(v);
+                                },
+                                onChangeStart: (v) => _beginScrub(v),
+                                onChangeEnd: (v) {
+                                  ctrl.seekTo(
+                                      Duration(milliseconds: v.toInt()));
+                                  setState(() => _dragValue = null);
+                                  _endScrub();
+                                },
+                              ),
+                            ),
+                            if (_scrubbing && _previewMs != null)
+                              Positioned(
+                                left: left,
+                                bottom: 30,
+                                child: _buildPreviewBubble(_previewMs!),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  // 时间
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Row(
                       children: [
                         Text(_fmt(pos),
                             style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 13,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w600)),
-                        Expanded(
-                          child: SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              trackHeight: 2,
-                              activeTrackColor: violet,
-                              inactiveTrackColor:
-                                  Colors.white.withValues(alpha: 0.28),
-                              thumbColor: violet,
-                              thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 5.5),
-                              overlayShape: const RoundSliderOverlayShape(
-                                  overlayRadius: 14),
-                              overlayColor: violet.withValues(alpha: 0.2),
-                            ),
-                            child: Slider(
-                              min: 0,
-                              max: maxMs,
-                              value: positionMs.clamp(0.0, maxMs).toDouble(),
-                              onChanged: (v) =>
-                                  setState(() => _dragValue = v),
-                              onChangeStart: (_) => _hideTimer?.cancel(),
-                              onChangeEnd: (v) {
-                                ctrl.seekTo(Duration(milliseconds: v.toInt()));
-                                setState(() => _dragValue = null);
-                                _scheduleHide();
-                              },
-                            ),
-                          ),
-                        ),
+                        const Spacer(),
                         Text(_fmt(ctrl.value.duration),
                             style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
+                                color: Color(0xB3FFFFFF),
+                                fontSize: 12,
                                 fontWeight: FontWeight.w600)),
-                        IconButton(
-                          icon: Icon(
-                            _fullscreen
-                                ? Icons.fullscreen_exit_rounded
-                                : Icons.fullscreen_rounded,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                          onPressed: _toggleFullscreen,
-                        ),
                       ],
                     ),
                   ),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-                    child: Row(
-                      children: [
-                        _mpvTool('换源', _switching ? null : _switchSource),
-                        _mpvTool('选集', _showEpisodeSheet),
-                        _v3SpeedButton(ctrl),
-                        _mpvTool('音轨', () => _showMpvAudio(ctrl)),
-                        _mpvTool('字幕', () => _showMpvSubtitle(ctrl)),
-                        _mpvTool('硬解', _toggleMpvHwDecode, active: _hwDecode),
-                        _mpvTool('插帧', _toggleMpvInterpolation,
-                            active: _mpvInterpolation),
-                        _mpvTool('循环', () {
-                          ctrl.setLooping(!ctrl.value.isLooping);
-                          setState(() {});
-                        }, active: ctrl.value.isLooping),
-                        _mpvTool('下一集', _nextEpisode),
-                        _mpvTool('画面',
-                            () => _selectQuality((_quality + 1) % 4),
-                            active: _quality != 0),
-                        _mpvTool('参数', () => _showMpvInfo(ctrl)),
-                        _mpvTool('全屏', _toggleFullscreen),
-                      ],
+                  const SizedBox(height: 6),
+                  // 浮动胶囊控制条
+                  Center(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(30),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.08)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _mpvBarIcon(
+                              Icons.skip_previous_rounded,
+                              hasPrev
+                                  ? () => _switchEpisode(_episodeIndex - 1)
+                                  : null,
+                            ),
+                            _mpvBarIcon(
+                              value.isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              _togglePlay,
+                              size: 30,
+                            ),
+                            _mpvBarIcon(
+                              Icons.skip_next_rounded,
+                              hasNext ? _nextEpisode : null,
+                            ),
+                            _mpvDivider(),
+                            _mpvBarIcon(
+                              Icons.subtitles_outlined,
+                              () {
+                                setState(() => DanmakuService.enabled =
+                                    !DanmakuService.enabled);
+                                _toast(DanmakuService.enabled
+                                    ? '弹幕已开启'
+                                    : '弹幕已关闭');
+                              },
+                              active: DanmakuService.enabled,
+                            ),
+                            _v3SpeedButton(ctrl),
+                            _mpvBarIcon(Icons.audiotrack_rounded,
+                                () => _showMpvAudio(ctrl)),
+                            _mpvBarIcon(Icons.closed_caption_outlined,
+                                () => _showMpvSubtitle(ctrl)),
+                            _mpvDivider(),
+                            _mpvBarIcon(Icons.video_collection_outlined,
+                                _showEpisodeSheet),
+                            _mpvBarIcon(Icons.tune_rounded,
+                                () => _showMpvMore(ctrl)),
+                            _mpvBarIcon(
+                              _fullscreen
+                                  ? Icons.fullscreen_exit_rounded
+                                  : Icons.fullscreen_rounded,
+                              _toggleFullscreen,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -1961,24 +2009,169 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget _mpvTool(String label, VoidCallback? onTap, {bool active = false}) {
-    const violet = Color(0xFFA78BFA);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: onTap == null
-                ? const Color(0x4DFFFFFF)
-                : (active ? violet : const Color(0xCCFFFFFF)),
-            fontSize: 11,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-          ),
+  /// MPV 顶部圆形按钮（毛玻璃黑底）
+  Widget _mpvCircleBtn(IconData icon, VoidCallback onTap) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.45),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(9),
+          child: Icon(icon, color: Colors.white, size: 18),
         ),
       ),
+    );
+  }
+
+  /// MPV 胶囊控制条内的图标按钮
+  Widget _mpvBarIcon(IconData icon, VoidCallback? onTap,
+      {double size = 22, bool active = false}) {
+    const violet = Color(0xFFA78BFA);
+    return IconButton(
+      onPressed: onTap,
+      splashRadius: 20,
+      padding: const EdgeInsets.all(8),
+      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      icon: Icon(
+        icon,
+        size: size,
+        color: onTap == null
+            ? const Color(0x4DFFFFFF)
+            : (active ? violet : Colors.white),
+      ),
+    );
+  }
+
+  Widget _mpvDivider() {
+    return Container(
+      width: 1,
+      height: 20,
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      color: Colors.white.withValues(alpha: 0.15),
+    );
+  }
+
+  /// MPV 标题栏连击 5 次 → 弹幕接口设置
+  int _mpvTitleTaps = 0;
+  Timer? _mpvTitleTapTimer;
+
+  void _onMpvTitleTap() {
+    _mpvTitleTaps++;
+    _mpvTitleTapTimer?.cancel();
+    if (_mpvTitleTaps >= 5) {
+      _mpvTitleTaps = 0;
+      Get.to(() => const DanmakuApiPage());
+      return;
+    }
+    if (_mpvTitleTaps >= 3) {
+      _toast('再点 ${5 - _mpvTitleTaps} 次打开弹幕接口设置');
+    }
+    _mpvTitleTapTimer = Timer(const Duration(milliseconds: 800), () {
+      _mpvTitleTaps = 0;
+    });
+  }
+
+  /// MPV「更多」功能菜单（硬解 / 插帧 / 循环 / 画面 / 弹幕接口等）
+  Future<void> _showMpvMore(dynamic ctrl) async {
+    _hideTimer?.cancel();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1B3A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: StatefulBuilder(
+            builder: (ctx, setSheet) {
+              Widget item(IconData icon, String label,
+                  {bool active = false, VoidCallback? onTap}) {
+                const violet = Color(0xFFA78BFA);
+                return ListTile(
+                  dense: true,
+                  leading: Icon(icon,
+                      size: 20,
+                      color: active ? violet : Colors.white70),
+                  title: Text(label,
+                      style: TextStyle(
+                          color: active ? violet : Colors.white,
+                          fontSize: 13)),
+                  trailing: active
+                      ? const Icon(Icons.check_circle,
+                          color: violet, size: 16)
+                      : null,
+                  onTap: onTap,
+                );
+              }
+
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+                      child: Row(
+                        children: [
+                          Text('播放设置',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                    item(Icons.swap_vert_circle_outlined, '换源',
+                        onTap: _switching
+                            ? null
+                            : () {
+                                Navigator.of(ctx).pop();
+                                _switchSource();
+                              }),
+                    item(Icons.video_collection_outlined, '选集', onTap: () {
+                      Navigator.of(ctx).pop();
+                      _showEpisodeSheet();
+                    }),
+                    item(Icons.memory, _hwDecode ? '硬解（已开启）' : '硬解（已关闭）',
+                        active: _hwDecode, onTap: () {
+                      _toggleMpvHwDecode();
+                      setSheet(() {});
+                    }),
+                    item(Icons.speed, _mpvInterpolation ? '插帧（已开启）' : '插帧（已关闭）',
+                        active: _mpvInterpolation, onTap: () {
+                      _toggleMpvInterpolation();
+                      setSheet(() {});
+                    }),
+                    item(Icons.loop,
+                        ctrl.value.isLooping ? '单集循环（已开启）' : '单集循环（已关闭）',
+                        active: ctrl.value.isLooping, onTap: () {
+                      ctrl.setLooping(!ctrl.value.isLooping);
+                      setState(() {});
+                      setSheet(() {});
+                    }),
+                    item(Icons.tonality_outlined, '画质增强：${_qualityName}',
+                        active: _quality != 0, onTap: () {
+                      _selectQuality((_quality + 1) % 4);
+                      setSheet(() {});
+                    }),
+                    item(Icons.subtitles_outlined, '弹幕接口管理', onTap: () {
+                      Navigator.of(ctx).pop();
+                      Get.to(() => const DanmakuApiPage());
+                    }),
+                    item(Icons.info_outline_rounded, 'MPV 播放参数',
+                        onTap: () {
+                      Navigator.of(ctx).pop();
+                      _showMpvInfo(ctrl);
+                    }),
+                    const SizedBox(height: 10),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
