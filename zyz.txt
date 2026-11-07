@@ -7,3 +7,4 @@
 金蟾官方资源|https://zy.jinchanjiexi.net/api.php/provide/vod/
 广告线路极速|https://jszyapi.com/api.php/provide/vod/
 广告线路暴风|https://bfzyapi.com/api.php/provide/vod/
+广告优质线路|https://api.yzzy-api.com/inc/api_mac10_all.php
