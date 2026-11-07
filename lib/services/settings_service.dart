@@ -13,6 +13,9 @@ class SettingsService {
   static const int playerBili = 1;
   static const int playerV3 = 2;
 
+  /// 播放器 4：MPV（libmpv 内核）
+  static const int playerV4 = 3;
+
   /// 画质增强：0 标准、1 鲜艳、2 明亮、3 柔和
   static const List<String> qualityNames = ['标准', '鲜艳', '明亮', '柔和'];
 

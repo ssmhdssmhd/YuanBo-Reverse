@@ -61,6 +61,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _styleLabel(int style) {
     if (style == SettingsService.playerBili) return '播放器 2 · 哔哩哔哩风格';
     if (style == SettingsService.playerV3) return '播放器 3 · 专业版';
+    if (style == SettingsService.playerV4) return '播放器 4 · MPV';
     return '播放器 1 · 简洁版';
   }
 
@@ -115,6 +116,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 icon: Icons.desktop_windows,
                 title: '播放器 3 · 专业版',
                 subtitle: '自动横屏，顶部信息栏 + 右侧锁定 / 旋转 + 底部专业工具栏',
+              ),
+              const SizedBox(height: 12),
+              _buildOption(
+                style: SettingsService.playerV4,
+                icon: Icons.play_circle_fill,
+                title: '播放器 4 · MPV',
+                subtitle: 'libmpv 内核，modernz / uosc / 玻璃 三套主题可切换，'
+                    '左右拖动调亮度音量、横滑调进度',
               ),
               const SizedBox(height: 16),
               const Padding(

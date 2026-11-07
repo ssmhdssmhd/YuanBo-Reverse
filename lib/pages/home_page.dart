@@ -14,6 +14,7 @@ import 'package:yuanbo/pages/update_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/services/history_service.dart';
 import 'package:yuanbo/services/parse_service.dart';
+import 'package:yuanbo/services/mpv_player_adapter.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/source_service.dart';
 import 'package:yuanbo/services/web_play_service.dart';
@@ -63,6 +64,10 @@ class HomeController extends GetxController {
         // 解析接口 / 网页播放接口同样随仓库实时生效，无需重新编译安装
         ParseService.sync();
         WebPlayService.sync();
+        // 使用播放器 4（MPV）时提前加载 libmpv 内核，进入播放页近乎秒开
+        if (SettingsService.currentPlayerStyle == SettingsService.playerV4) {
+          MpvPlayerAdapter.prewarm();
+        }
       });
     });
   }
