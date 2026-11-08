@@ -2600,38 +2600,58 @@ class _PlayerPageState extends State<PlayerPage> {
           : '画质自适应',
       '时长': _fmt(value.duration),
       '倍速': '${_speed}x',
-      '解码': _hwDecode ? 'ExoPlayer 硬解' : '软解',
+      '解码': _style == SettingsService.playerV4
+          ? (_hwDecode ? 'MPV 硬解' : 'MPV 软解')
+          : (_hwDecode ? 'ExoPlayer 硬解' : '软解'),
+      '链接': _playUrl.isEmpty ? '未知' : _playUrl,
     };
     await Get.dialog(
       AlertDialog(
         backgroundColor: const Color(0xFF1E1B3A),
         title: const Text('播放参数', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: rows.entries
-              .map((e) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 64,
-                          child: Text(e.key,
-                              style: const TextStyle(
-                                  color: GlassTheme.textMuted, fontSize: 12)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: rows.entries
+                  .map((e) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 64,
+                              child: Text(e.key,
+                                  style: const TextStyle(
+                                      color: GlassTheme.textMuted,
+                                      fontSize: 12)),
+                            ),
+                            Expanded(
+                              child: SelectableText(
+                                e.value,
+                                maxLines: e.key == '链接' ? 6 : 2,
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 12),
+                              ),
+                            ),
+                          ],
                         ),
-                        Expanded(
-                          child: Text(e.value,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 12)),
-                        ),
-                      ],
-                    ),
-                  ))
-              .toList(),
+                      ))
+                  .toList(),
+            ),
+          ),
         ),
         actions: [
+          TextButton(
+            onPressed: () async {
+              if (_playUrl.isEmpty) return;
+              await Clipboard.setData(ClipboardData(text: _playUrl));
+              Get.back();
+              _toast('播放链接已复制');
+            },
+            child: const Text('复制链接'),
+          ),
           TextButton(
             onPressed: () => Get.back(),
             child: const Text('关闭'),
