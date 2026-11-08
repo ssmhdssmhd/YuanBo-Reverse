@@ -9,3 +9,4 @@
 新极品资源站|https://jipinvip1.com/api.php/provide/vod/
 暴风资源|https://bfzyapi.com/api.php/provide/vod/
 无水印资源|https://api.wsyzy.net/api.php/provide/vod/
+芒果TV|https://caiji.mgzyapi.com/api.php/provide/vod/
