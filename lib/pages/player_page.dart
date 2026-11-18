@@ -22,6 +22,7 @@ import 'package:yuanbo/services/history_service.dart';
 import 'package:yuanbo/services/parse_service.dart';
 import 'package:yuanbo/services/mpv_player_adapter.dart';
 import 'package:yuanbo/services/settings_service.dart';
+import 'package:yuanbo/services/source_service.dart';
 import 'package:yuanbo/services/system_level_service.dart';
 import 'package:yuanbo/services/web_play_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
@@ -177,7 +178,11 @@ class _PlayerPageState extends State<PlayerPage> {
     await _initPlayer(_episode ?? widget.episode);
   }
 
-  Future<void> _initPlayer(PlayEpisode ep) async {
+  Future<void> _initPlayer(
+    PlayEpisode ep, {
+    int? startMs,
+    bool refreshParse = false,
+  }) async {
     // 切换集数前先保存上一集的进度
     _recordHistory();
     if (mounted) {
@@ -207,6 +212,7 @@ class _PlayerPageState extends State<PlayerPage> {
       }
       final resolved = await ParseService.resolve(
         target,
+        noCache: refreshParse,
         onLog: (msg) {
           if (mounted) setState(() => _parseLog = msg);
         },
@@ -245,7 +251,11 @@ class _PlayerPageState extends State<PlayerPage> {
         return;
       }
       await ctrl.setPlaybackSpeed(_speed);
-      if (!_resumeApplied &&
+      if (startMs != null && startMs > 0) {
+        // 播放中切换解析 / 换源：沿用当前进度
+        await ctrl.seekTo(Duration(milliseconds: startMs));
+        _resumeApplied = true;
+      } else if (!_resumeApplied &&
           widget.startPositionMs > 0 &&
           ep.url == widget.episode.url) {
         await ctrl.seekTo(Duration(milliseconds: widget.startPositionMs));
@@ -720,9 +730,12 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// 切换资源站：按片名在其他源重新搜索并续播当前集
   Future<void> _switchSource() async {
+    if (_switching) return;
     final c = Get.isRegistered<HomeController>() ? Get.find<HomeController>() : null;
-    if (c == null) return;
-    final sources = c.sources;
+    var sources = c?.sources.toList() ?? <VideoSource>[];
+    // 从历史 / 深链进入播放器时 HomeController 可能未初始化，兜底读取本地资源
+    if (sources.isEmpty) sources = await SourceService.initial();
+    if (!mounted) return;
     if (sources.length < 2) {
       _toast('仅有一个资源站，可在资源管理中同步仓库资源');
       return;
@@ -810,6 +823,7 @@ class _PlayerPageState extends State<PlayerPage> {
     final idx = _episodeIndex >= episodes.length
         ? episodes.length - 1
         : _episodeIndex;
+    final pos = _videoCtrl?.value.position.inMilliseconds ?? 0;
     if (mounted) {
       setState(() {
         _switching = false;
@@ -819,8 +833,142 @@ class _PlayerPageState extends State<PlayerPage> {
         _episodeIndex = idx;
       });
     }
-    await _initPlayer(episodes[idx]);
+    await _initPlayer(episodes[idx], startMs: pos);
     _toast('已切换至 ${s.name}');
+  }
+
+  /// 播放中切换 JSON 解析线路（平台视频）
+  Future<void> _showParseSheet() async {
+    if (_switching) return;
+    await ParseService.load();
+    if (!mounted) return;
+    _hideTimer?.cancel();
+    final apis = ParseService.apis;
+    final selected = ParseService.selectedUrl;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF16141F),
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.8,
+      ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text('切换 JSON 解析',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      Get.to(() => const ParseApiPage());
+                    },
+                    child: const Text('管理接口',
+                        style:
+                            TextStyle(color: Color(0xFFA78BFA), fontSize: 12)),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: apis.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      child: Text(
+                        '暂无 JSON 解析接口\n可在「播放器源 → 视频解析」添加，或同步仓库 jiexi.json',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color: Colors.white54, fontSize: 12, height: 1.6),
+                      ),
+                    )
+                  : ListView(
+                      shrinkWrap: true,
+                      children: [
+                        ListTile(
+                          dense: true,
+                          leading: Icon(
+                            selected.isEmpty
+                                ? Icons.radio_button_checked
+                                : Icons.language_rounded,
+                            size: 20,
+                            color: selected.isEmpty
+                                ? const Color(0xFFA78BFA)
+                                : Colors.white70,
+                          ),
+                          title: const Text('自动（按顺序尝试）',
+                              style: TextStyle(
+                                  color: Colors.white, fontSize: 13)),
+                          subtitle: const Text('依次尝试全部接口，使用第一个成功的线路',
+                              style: TextStyle(
+                                  color: Colors.white38, fontSize: 10)),
+                          onTap: () => Navigator.of(ctx).pop(''),
+                        ),
+                        ...apis.map((api) => ListTile(
+                              dense: true,
+                              leading: Icon(
+                                api.url == selected
+                                    ? Icons.radio_button_checked
+                                    : Icons.link_rounded,
+                                size: 20,
+                                color: api.url == selected
+                                    ? const Color(0xFFA78BFA)
+                                    : Colors.white70,
+                              ),
+                              title: Text(api.name,
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 13)),
+                              subtitle: Text(api.url,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: Colors.white38, fontSize: 10)),
+                              onTap: () => Navigator.of(ctx).pop(api.url),
+                            )),
+                      ],
+                    ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await _applyParseLine(picked);
+  }
+
+  /// 应用解析线路：平台视频立即重新解析并保持当前进度
+  Future<void> _applyParseLine(String apiUrl) async {
+    final ep = _episode;
+    if (ep == null) return;
+    final isPlatform = ParseService.needsParse(ep.url);
+    await ParseService.setSelected(apiUrl);
+    ParseService.clearCache(ep.url);
+    if (!mounted) return;
+    if (!isPlatform) {
+      _toast(apiUrl.isEmpty
+          ? '已切换为自动解析，平台视频播放时生效'
+          : '已保存解析线路，平台视频播放时生效');
+      return;
+    }
+    final pos = _videoCtrl?.value.position.inMilliseconds ?? 0;
+    final name = ParseService.selectedApi?.name ?? '自动';
+    setState(() => _switching = true);
+    await _initPlayer(ep, startMs: pos, refreshParse: true);
+    if (!mounted) return;
+    setState(() => _switching = false);
+    if (_ready && _error == null) _toast('已切换解析线路：$name');
   }
 
   Future<void> _loadSystemLevels() async {
@@ -1128,6 +1276,11 @@ class _PlayerPageState extends State<PlayerPage> {
                     icon: const Icon(Icons.open_in_new),
                   ),
                   IconButton(
+                    tooltip: 'JSON 解析',
+                    onPressed: _showParseSheet,
+                    icon: const Icon(Icons.code),
+                  ),
+                  IconButton(
                     tooltip: '换源',
                     onPressed: _switching ? null : _switchSource,
                     icon: _switching
@@ -1212,10 +1365,19 @@ class _PlayerPageState extends State<PlayerPage> {
             TextButton.icon(
               onPressed: () {
                 final ep = _episode;
-                if (ep != null) _initPlayer(ep);
+                if (ep == null) return;
+                // 重试前清掉解析缓存，避免一直拿到失效的旧直链
+                ParseService.clearCache(ep.url);
+                _initPlayer(ep, refreshParse: true);
               },
               icon: const Icon(Icons.refresh, color: GlassTheme.accent),
               label: const Text('重试',
+                  style: TextStyle(color: GlassTheme.accent)),
+            ),
+            TextButton.icon(
+              onPressed: _showParseSheet,
+              icon: const Icon(Icons.code, color: GlassTheme.accent),
+              label: const Text('切换 JSON 解析',
                   style: TextStyle(color: GlassTheme.accent)),
             ),
             TextButton.icon(
@@ -2142,6 +2304,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 c.setLooping(!(c.value.isLooping as bool));
                 setState(() {});
               }),
+              item(Icons.code_rounded, '切换 JSON 解析', _showParseSheet),
               item(Icons.swap_horiz_rounded, '切换资源站', _switchSource),
               item(Icons.video_collection_outlined, '选集', _showEpisodeSheet),
               item(Icons.info_outline_rounded, '播放参数', () {
@@ -2465,6 +2628,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                     child: Row(
                       children: [
+                        _v3Tool('解析', _showParseSheet),
                         _v3Tool('换源', _switching ? null : _switchSource),
                         _v3Tool('选集', _showEpisodeSheet),
                         _v3Tool('全屏', _toggleFullscreen),
@@ -2870,6 +3034,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   _barIcon(Icons.cast, _openCast, size: 20),
                   _barIcon(Icons.picture_in_picture_alt, _enterPip, size: 20),
                   _barIcon(Icons.open_in_new, _openExternal, size: 20),
+                  _barIcon(Icons.code, _showParseSheet, size: 20),
                   _barIcon(Icons.swap_horiz,
                       _switching ? () {} : _switchSource,
                       size: 20),

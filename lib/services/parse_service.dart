@@ -21,9 +21,23 @@ class ParseService {
   /// 用户主动删除的仓库接口 URL，同步时不再重复加回
   static final Set<String> _hidden = {};
 
+  /// 用户指定的解析线路 URL（为空表示自动：按列表顺序依次尝试）
+  static String _selected = '';
+
   static List<ParseApi> get apis => List.unmodifiable(_apis);
   static int get count => _apis.length;
   static int get timeout => _timeout;
+
+  /// 当前指定的解析线路（未指定时返回 null）
+  static ParseApi? get selectedApi {
+    if (_selected.isEmpty) return null;
+    for (final api in _apis) {
+      if (api.url == _selected) return api;
+    }
+    return null;
+  }
+
+  static String get selectedUrl => _selected;
 
   static Future<void> load() async {
     if (_loaded) return;
@@ -49,6 +63,8 @@ class ParseService {
         if (t is num && t > 0) _timeout = t.toInt().clamp(5, 30);
         final h = data['hidden'];
         if (h is List) _hidden.addAll(h.map((e) => e.toString()));
+        final sel = data['selected'];
+        if (sel is String) _selected = sel.trim();
         for (final key in ['apis', 'api', 'list', 'data']) {
           if (data[key] is List) {
             list = data[key] as List;
@@ -83,11 +99,31 @@ class ParseService {
   static Future<void> remove(ParseApi api) async {
     await _ensureLoaded();
     _apis.remove(api);
+    if (_selected == api.url) _selected = '';
     if (_origins.remove(api.url) == 'remote') {
       // 删除的是仓库同步来的接口：记入隐藏列表，仓库同步不覆盖用户意图
       _hidden.add(api.url);
     }
     await _save();
+  }
+
+  /// 指定解析线路（传空字符串表示自动）
+  static Future<void> setSelected(String url) async {
+    await _ensureLoaded();
+    final value = url.trim();
+    _selected = _apis.any((e) => e.url == value) ? value : '';
+    // 线路变化后，旧的解析结果不再适用
+    _cache.clear();
+    await _save();
+  }
+
+  /// 清理解析结果缓存（切换线路 / 重试时使用）
+  static void clearCache([String? pageUrl]) {
+    if (pageUrl == null) {
+      _cache.clear();
+    } else {
+      _cache.remove(pageUrl);
+    }
   }
 
   /// 并发请求所有镜像，取第一个成功结果；单个镜像 6 秒超时
@@ -195,6 +231,10 @@ class ParseService {
       _origins.remove(api.url);
       changed++;
     }
+    if (_selected.isNotEmpty && !_apis.any((e) => e.url == _selected)) {
+      _selected = '';
+      _cache.clear();
+    }
     return changed;
   }
 
@@ -202,16 +242,31 @@ class ParseService {
   static bool needsParse(String url) => AppConstants.isPlatformPage(url);
 
   /// 依次尝试已配置的解析接口，返回可直接播放的直链
+  ///
+  /// 优先使用用户指定的解析线路；[noCache] 为 true 时忽略已有结果，
+  /// 用于播放中切换解析线路后重新解析。
   static Future<String?> resolve(
     String pageUrl, {
     void Function(String message)? onLog,
+    bool noCache = false,
   }) async {
     await _ensureLoaded();
-    final cached = _cache[pageUrl];
-    if (cached != null) return cached;
+    if (!noCache) {
+      final cached = _cache[pageUrl];
+      if (cached != null) return cached;
+    }
     if (_apis.isEmpty) return null;
 
-    for (final api in _apis) {
+    final order = _apis.toList();
+    if (_selected.isNotEmpty) {
+      final index = order.indexWhere((e) => e.url == _selected);
+      if (index > 0) {
+        final api = order.removeAt(index);
+        order.insert(0, api);
+      }
+    }
+
+    for (final api in order) {
       onLog?.call('正在使用「${api.name}」解析…');
       try {
         final res = await _dio().get<String>(
@@ -317,6 +372,7 @@ class ParseService {
       final file = await _file();
       await file.writeAsString(jsonEncode({
         'timeout': _timeout,
+        'selected': _selected,
         'apis': _apis
             .map((e) => {
                   ...e.toJson(),
