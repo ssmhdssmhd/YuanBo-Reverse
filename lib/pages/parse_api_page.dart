@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:yuanbo/models/parse_api.dart';
+import 'package:yuanbo/services/parse_key_service.dart';
 import 'package:yuanbo/services/parse_service.dart';
+import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/widgets/glass_card.dart';
 
@@ -15,6 +17,10 @@ class ParseApiPage extends StatefulWidget {
 class _ParseApiPageState extends State<ParseApiPage> {
   bool _syncing = false;
   bool _ready = false;
+  bool _refreshingKey = false;
+  String _domain = SettingsService.defaultCloudDomain;
+  String _keyText = '未获取';
+  String _keyTime = '';
 
   @override
   void initState() {
@@ -24,9 +30,30 @@ class _ParseApiPageState extends State<ParseApiPage> {
 
   Future<void> _load() async {
     await ParseService.load();
+    _domain = await SettingsService.getCloudDomain();
+    _syncKeyState();
     if (!mounted) return;
     setState(() => _ready = true);
     _sync(silent: true);
+    _loadKey();
+  }
+
+  void _syncKeyState() {
+    _keyText = ParseKeyService.maskedKey;
+    final at = ParseKeyService.fetchedAt;
+    _keyTime = at == null ? '' : '更新于 ${_formatTime(at)}';
+  }
+
+  Future<void> _loadKey() async {
+    await ParseKeyService.currentKey();
+    if (!mounted) return;
+    setState(_syncKeyState);
+  }
+
+  static String _formatTime(DateTime time) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(time.month)}-${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}';
   }
 
   Future<void> _sync({bool silent = false}) async {
@@ -128,6 +155,70 @@ class _ParseApiPageState extends State<ParseApiPage> {
     _toast('已删除「${api.name}」');
   }
 
+  Future<void> _editDomain() async {
+    final ctrl = TextEditingController(text: _domain);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1B3A),
+        title: const Text('云端域名',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: ctrl,
+              style: const TextStyle(color: Colors.white),
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                hintText: SettingsService.defaultCloudDomain,
+                labelStyle: TextStyle(color: GlassTheme.textMuted),
+                helperText: '接口 Key 从「域名/MXDTKEY.json」获取',
+                helperStyle:
+                    TextStyle(color: GlassTheme.textMuted, fontSize: 10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消',
+                style: TextStyle(color: GlassTheme.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('保存',
+                style: TextStyle(color: GlassTheme.accent)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final domain = SettingsService.normalizeCloudDomain(ctrl.text);
+    await SettingsService.setCloudDomain(domain);
+    final key = await ParseKeyService.refresh();
+    if (!mounted) return;
+    setState(() {
+      _domain = domain;
+      _syncKeyState();
+    });
+    _toast(key != null ? '云端域名已更新：$domain' : '域名已保存，但暂未获取到 Key');
+  }
+
+  Future<void> _refreshKey() async {
+    if (_refreshingKey) return;
+    setState(() => _refreshingKey = true);
+    final key = await ParseKeyService.refresh();
+    if (!mounted) return;
+    setState(() {
+      _refreshingKey = false;
+      _syncKeyState();
+    });
+    _toast(key != null ? '已从云端刷新 Key' : '获取失败，请检查域名或 MXDTKEY.json');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -188,6 +279,85 @@ class _ParseApiPageState extends State<ParseApiPage> {
                             onPressed: _addApi,
                             icon: const Icon(Icons.add, size: 18),
                             label: const Text('添加解析接口'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    GlassCard(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.cloud_outlined,
+                                  color: GlassTheme.accent, size: 18),
+                              const SizedBox(width: 8),
+                              const Text('云端域名 / 动态 Key',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold)),
+                              const Spacer(),
+                              TextButton(
+                                onPressed: _editDomain,
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: const Text('修改',
+                                    style: TextStyle(
+                                        color: GlassTheme.accent,
+                                        fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text('域名：$_domain',
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 12)),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Key：$_keyText${_keyTime.isEmpty ? '' : ' · $_keyTime'}',
+                            style: const TextStyle(
+                                color: GlassTheme.textMuted, fontSize: 11),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            '每 6 小时自动读取「域名 + MXDTKEY.json」并替换沫兮 PHP 接口的 key，'
+                            '其它接口和参数不受影响。',
+                            style: TextStyle(
+                                color: GlassTheme.textMuted,
+                                fontSize: 10,
+                                height: 1.6),
+                          ),
+                          const SizedBox(height: 6),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: _refreshingKey ? null : _refreshKey,
+                              icon: _refreshingKey
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: GlassTheme.accent),
+                                    )
+                                  : const Icon(Icons.refresh, size: 16),
+                              label: const Text('立即刷新 Key',
+                                  style: TextStyle(fontSize: 12)),
+                              style: TextButton.styleFrom(
+                                foregroundColor: GlassTheme.accent,
+                                padding: EdgeInsets.zero,
+                                minimumSize: Size.zero,
+                                tapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
                           ),
                         ],
                       ),

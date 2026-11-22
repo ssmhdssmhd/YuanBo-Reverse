@@ -22,11 +22,15 @@ class SettingsService {
   /// 网页播放入口（JSON 解析失败时自动调用）
   static const String defaultWebPlayUrl = 'https://ssmhd.com/?url=';
 
+  /// 云端域名（JSON 解析接口的动态 Key 从这里获取）
+  static const String defaultCloudDomain = 'https://ssmhd.com/';
+
   static int _playerStyle = playerV4;
 
   /// 用户是否主动选择过播放器样式（未选择时默认播放器 4）
   static bool _playerStyleChosen = false;
   static String _webPlayUrl = defaultWebPlayUrl;
+  static String _cloudDomain = defaultCloudDomain;
   static bool _showSearch = true;
   static int _quality = 0;
   static bool _pipEnabled = false;
@@ -60,6 +64,30 @@ class SettingsService {
     _webPlayUrl = value.isEmpty ? defaultWebPlayUrl : value;
     _loaded = true;
     await _save();
+  }
+
+  static Future<String> getCloudDomain() async {
+    if (!_loaded) await _load();
+    return _cloudDomain;
+  }
+
+  static Future<void> setCloudDomain(String domain) async {
+    _cloudDomain = normalizeCloudDomain(domain);
+    _loaded = true;
+    await _save();
+  }
+
+  /// 规范化云端域名：自动补全协议、去掉路径，统一保留末尾 `/`
+  static String normalizeCloudDomain(String raw) {
+    var value = raw.trim();
+    if (value.isEmpty) return defaultCloudDomain;
+    if (!value.startsWith('http://') && !value.startsWith('https://')) {
+      value = 'https://$value';
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.host.isEmpty) return defaultCloudDomain;
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    return '${uri.scheme}://${uri.host}$port/';
   }
 
   static Future<bool> getShowSearch() async {
@@ -113,6 +141,9 @@ class SettingsService {
             final url = (data['webPlayUrl'] as String).trim();
             _webPlayUrl = url.isEmpty ? defaultWebPlayUrl : url;
           }
+          if (data['cloudDomain'] is String) {
+            _cloudDomain = normalizeCloudDomain(data['cloudDomain'] as String);
+          }
           if (data['showSearch'] is bool) {
             _showSearch = data['showSearch'] as bool;
           }
@@ -136,6 +167,7 @@ class SettingsService {
         'playerStyle': _playerStyle,
         'playerStyleChosen': _playerStyleChosen,
         'webPlayUrl': _webPlayUrl,
+        'cloudDomain': _cloudDomain,
         'showSearch': _showSearch,
         'quality': _quality,
         'pip': _pipEnabled,

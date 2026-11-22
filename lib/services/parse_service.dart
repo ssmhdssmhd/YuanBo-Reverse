@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:yuanbo/models/parse_api.dart';
+import 'package:yuanbo/services/parse_key_service.dart';
 import 'package:yuanbo/utils/constants.dart';
 
 /// JSON 解析接口：本地配置、仓库同步与平台视频解析
@@ -269,8 +270,10 @@ class ParseService {
     for (final api in order) {
       onLog?.call('正在使用「${api.name}」解析…');
       try {
+        // 沫兮 PHP 接口的 key 每 6 小时变化，请求前自动从云端配置替换
+        final apiUrl = await ParseKeyService.apply(api.url);
         final res = await _dio().get<String>(
-          _buildRequestUrl(api.url, pageUrl),
+          _buildRequestUrl(apiUrl, pageUrl),
           options: Options(
             responseType: ResponseType.plain,
             followRedirects: true,
