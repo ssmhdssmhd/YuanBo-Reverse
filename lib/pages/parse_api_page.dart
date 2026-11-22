@@ -174,7 +174,7 @@ class _ParseApiPageState extends State<ParseApiPage> {
               decoration: const InputDecoration(
                 hintText: SettingsService.defaultCloudDomain,
                 labelStyle: TextStyle(color: GlassTheme.textMuted),
-                helperText: '接口 Key 从「域名/MXDTKEY.json」获取',
+                helperText: '接口 Key 从「域名/MXDTKEY.php」获取',
                 helperStyle:
                     TextStyle(color: GlassTheme.textMuted, fontSize: 10),
               ),
@@ -327,7 +327,7 @@ class _ParseApiPageState extends State<ParseApiPage> {
                           ),
                           const SizedBox(height: 6),
                           const Text(
-                            '每 6 小时自动读取「域名 + MXDTKEY.json」并替换沫兮 PHP 接口的 key，'
+                            '每 6 小时自动读取「域名 + MXDTKEY.php」并替换沫兮 PHP 接口的 key，'
                             '其它接口和参数不受影响。',
                             style: TextStyle(
                                 color: GlassTheme.textMuted,

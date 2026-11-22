@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.41 |
+| 当前版本 | v1.0.42 |
 | 构建时间 | 2026-11-23 |
 | 技术栈 | Flutter + GetX + video_player + media_kit(MPV) + Dio + WebView |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -30,7 +30,7 @@
 - 设置中心：可选「播放器 1 · 简洁版」「播放器 2 · 哔哩哔哩风格」「播放器 3 · 专业版」
 - 应用内更新：自动检测 GitHub Release，国内镜像加速下载 APK
 - JSON 解析：QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 播放页自动走解析接口取直链播放
-- 云端域名：JSON 解析页可设置云端域名（默认 `https://ssmhd.com/`），沫兮 PHP 接口的 `key` 每 6 小时自动从 `域名/MXDTKEY.json` 刷新
+- 云端域名：JSON 解析页可设置云端域名（默认 `https://ssmhd.com/`），沫兮 PHP 接口的 `key` 每 6 小时自动从 `域名/MXDTKEY.php` 刷新
 - 网页播放：解析失败时自动在 App 内置 WebView 打开「网页播放接口 + 播放页地址」，不跳浏览器
 - 手势操控：左右半屏滑动调亮度 / 音量，全屏横向拖动调进度（进度条与缩略图跟随）
 - 投屏：DLNA 搜索局域网电视 / 盒子并推送当前剧集
@@ -147,10 +147,11 @@
 沫兮 PHP 接口（`https://ssmhd.com/1.php?&key=…&url=` 等）的 `key` 每 6 小时更换一次：
 
 - 页面顶部「云端域名 / 动态 Key」可修改云端域名，默认 `https://ssmhd.com/`，保存后持久化
-- App 自动读取 `https://<域名>/MXDTKEY.json` 获取最新 `key`，缓存 6 小时后自动重新拉取
+- App 自动读取 `https://<域名>/MXDTKEY.php` 获取最新 `key`（`.json` 作为兜底端点）
+- 按服务端 `expires_in` 自动续期，缺失时按 6 小时缓存，并提前 2 分钟失效
 - 请求时只替换 `.php` 接口地址中已有的 `key` 参数（默认域名与当前配置域名），并同步切换接口域名
 - 其它解析接口（如 `fuyingapi.top`）的地址、参数完全不受影响
-- `MXDTKEY.json` 兼容 `"key"`、`{"key":"…"}`、`{"data":{"key":"…"}}`、`{"keys":[…]}` 等格式；获取失败时沿用旧 Key
+- `MXDTKEY.php` 返回 `{"code":200,"key":"…","expires_in":19688}`；兼容 `"key"`、`{"key":"…"}`、`{"data":{"key":"…"}}`、`{"keys":[…]}` 等格式，获取失败时沿用旧 Key
 
 ## 项目结构
 
@@ -165,7 +166,7 @@ lib/
 │   ├── announcement_service.dart # 公告缓存 + 仓库 sygg.txt 同步
 │   ├── settings_service.dart  # 应用设置（播放器样式）
 │   ├── parse_service.dart     # JSON 解析接口（本地 / jiexi.json 同步 / 平台解析）
-│   ├── parse_key_service.dart # 云端域名 + 动态 Key（MXDTKEY.json）
+│   ├── parse_key_service.dart # 云端域名 + 动态 Key（MXDTKEY.php）
 │   └── update_service.dart    # 检查更新 + 镜像下载 APK
 ├── pages/
 │   ├── splash_page.dart       # 启动页（版本首次启动弹出公告）
@@ -212,9 +213,14 @@ flutter build apk --release
 
 ## 版本更新日志
 
+### v1.0.42 (20261123)
+- 修复云端 Key 获取失败：端点改为 `MXDTKEY.php`（与服务器实际接口一致），`.json` 保留为兜底
+- 按服务端返回的 `expires_in` 自动续期，缺失时仍按 6 小时缓存
+- 获取 Key 提前 2 分钟失效，避免解析请求途中刚好过期
+
 ### v1.0.41 (20261123)
 - JSON 解析页新增「云端域名 / 动态 Key」：域名可修改，默认 `https://ssmhd.com/`
-- 沫兮 PHP 接口的 `key` 每 6 小时从 `https://<域名>/MXDTKEY.json` 自动获取并替换
+- 沫兮 PHP 接口的 `key` 每 6 小时从 `https://<域名>/MXDTKEY.php` 自动获取并替换
 - 仅替换 `.php` 接口中已有的 `key` 参数，其它解析接口与参数保持不变
 - 支持手动「立即刷新 Key」，获取失败自动沿用旧 Key，不影响正常解析
 

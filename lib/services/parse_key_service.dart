@@ -7,7 +7,7 @@ import 'package:yuanbo/services/settings_service.dart';
 /// 沫兮 PHP 解析接口的动态 Key
 ///
 /// 接口地址中的 `key` 每 6 小时更换一次，统一从云端
-/// `https://<域名>/MXDTKEY.json` 获取并按需替换。
+/// `https://<域名>/MXDTKEY.php` 获取并按需替换（`.json` 作为兜底）。
 /// 只处理 kanju-api 的 `.php` 接口（默认域名及当前配置域名），
 /// 其它解析接口保持原样。
 class ParseKeyService {
@@ -22,6 +22,7 @@ class ParseKeyService {
 
   static String _key = '';
   static DateTime? _fetchedAt;
+  static DateTime? _expiresAt;
   static DateTime? _failedAt;
   static Future<String?>? _pending;
 
@@ -36,10 +37,15 @@ class ParseKeyService {
     return '${_key.substring(0, 4)}****${_key.substring(_key.length - 2)}';
   }
 
-  /// 缓存的 Key 是否仍在有效期内（6 小时）
+  /// 缓存的 Key 是否仍在有效期内
+  ///
+  /// 优先使用服务端返回的 `expires_in`，没有时按 6 小时计算。
   static bool get isFresh {
+    if (_key.isEmpty) return false;
+    final expires = _expiresAt;
+    if (expires != null) return DateTime.now().isBefore(expires);
     final at = _fetchedAt;
-    if (_key.isEmpty || at == null) return false;
+    if (at == null) return false;
     return DateTime.now().difference(at) < _ttl;
   }
 
@@ -110,36 +116,87 @@ class ParseKeyService {
   static Future<String?> _doFetch() async {
     final domain = await SettingsService.getCloudDomain();
     final ts = DateTime.now().millisecondsSinceEpoch;
-    try {
-      final dio = Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 6),
-        receiveTimeout: const Duration(seconds: 6),
-      ));
-      final res = await dio.get<String>(
-        '${domain}MXDTKEY.json?t=$ts',
-        options: Options(
-          responseType: ResponseType.plain,
-          followRedirects: true,
-          validateStatus: (s) => s != null && s >= 200 && s < 300,
-          headers: {
-            HttpHeaders.cacheControlHeader: 'no-cache',
-            HttpHeaders.userAgentHeader: 'YuanBo-ParseKey',
-          },
-        ),
-      );
-      final parsed = _extractKey(res.data);
-      if (parsed == null) {
-        _failedAt = DateTime.now();
-        return _key.isEmpty ? null : _key;
+    // 正式端点为 MXDTKEY.php，MXDTKEY.json 作为其它部署的兜底
+    for (final endpoint in const ['MXDTKEY.php', 'MXDTKEY.json']) {
+      try {
+        final dio = Dio(BaseOptions(
+          connectTimeout: const Duration(seconds: 6),
+          receiveTimeout: const Duration(seconds: 6),
+        ));
+        final res = await dio.get<String>(
+          '$domain$endpoint?t=$ts',
+          options: Options(
+            responseType: ResponseType.plain,
+            followRedirects: true,
+            validateStatus: (s) => s != null && s >= 200 && s < 300,
+            headers: {
+              HttpHeaders.cacheControlHeader: 'no-cache',
+              HttpHeaders.userAgentHeader: 'YuanBo-ParseKey',
+            },
+          ),
+        );
+        final payload = _decode(res.data);
+        final parsed = _extractKey(payload);
+        if (parsed == null) continue;
+
+        final now = DateTime.now();
+        final seconds = _extractExpiresIn(payload) ?? _ttl.inSeconds;
+        _key = parsed;
+        _fetchedAt = now;
+        // 提前两分钟失效，避免请求途中 Key 刚好过期
+        _expiresAt = now.add(
+          Duration(seconds: seconds > 300 ? seconds - 120 : seconds),
+        );
+        _failedAt = null;
+        return _key;
+      } catch (_) {
+        // 尝试下一个端点
       }
-      _key = parsed;
-      _fetchedAt = DateTime.now();
-      _failedAt = null;
-      return _key;
-    } catch (_) {
-      _failedAt = DateTime.now();
-      return _key.isEmpty ? null : _key;
     }
+    _failedAt = DateTime.now();
+    return _key.isEmpty ? null : _key;
+  }
+
+  static dynamic _decode(dynamic data) {
+    if (data is String) {
+      final text = data.trim();
+      if (text.startsWith('{') || text.startsWith('[')) {
+        try {
+          return jsonDecode(text);
+        } catch (_) {}
+      }
+    }
+    return data;
+  }
+
+  /// 读取服务端给出的有效秒数：`expires_in`，或 `expires - server_time`
+  static int? _extractExpiresIn(dynamic data) {
+    if (data is List) {
+      for (final item in data) {
+        final found = _extractExpiresIn(item);
+        if (found != null) return found;
+      }
+      return null;
+    }
+    if (data is Map) {
+      final expiresIn = data['expires_in'];
+      if (expiresIn is num && expiresIn > 0) return expiresIn.toInt();
+      final expires = data['expires'];
+      if (expires is num) {
+        final base = data['server_time'] is num
+            ? (data['server_time'] as num).toInt()
+            : DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        final diff = expires.toInt() - base;
+        if (diff > 0) return diff;
+      }
+      for (final name in const ['data', 'result']) {
+        if (data.containsKey(name)) {
+          final found = _extractExpiresIn(data[name]);
+          if (found != null) return found;
+        }
+      }
+    }
+    return null;
   }
 
   /// 兼容多种格式：`"key"`、`{"key":"…"}`、`{"data":{"key":"…"}}`、
