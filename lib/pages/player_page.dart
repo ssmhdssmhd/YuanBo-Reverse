@@ -229,7 +229,19 @@ class _PlayerPageState extends State<PlayerPage> {
         await _openWebPlay(target, auto: true);
         return;
       }
-      target = resolved;
+      // 接口返回 ext: player 时是网页播放页，直接用内置 WebView 打开
+      if (resolved.isPlayer) {
+        if (mounted) {
+          setState(() {
+            _parsing = false;
+            _error = '已使用「${resolved.apiName}」打开网页播放，'
+                '返回后可重试或切换解析线路';
+          });
+        }
+        await _openWebPlayerDirect(resolved.url);
+        return;
+      }
+      target = resolved.url;
       if (mounted) setState(() => _parsing = false);
     }
 
@@ -725,6 +737,17 @@ class _PlayerPageState extends State<PlayerPage> {
     await Get.to(() => WebPlayerPage(
           pageUrl: videoUrl,
           title: '${widget.vodName} ${_episode?.name ?? ''}'.trim(),
+        ));
+  }
+
+  /// 解析接口直接返回网页播放页（ext: player）时，原样用内置 WebView 打开
+  Future<void> _openWebPlayerDirect(String url) async {
+    if (!mounted) return;
+    _setKeepScreenOn(false);
+    await Get.to(() => WebPlayerPage(
+          pageUrl: url,
+          title: '${widget.vodName} ${_episode?.name ?? ''}'.trim(),
+          direct: true,
         ));
   }
 
