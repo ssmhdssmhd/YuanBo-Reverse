@@ -13,15 +13,7 @@ class WebPlayerPage extends StatefulWidget {
   final String pageUrl;
   final String title;
 
-  /// 直接打开完整播放页（JSON 解析返回 ext: player 时使用）
-  final bool direct;
-
-  const WebPlayerPage({
-    super.key,
-    required this.pageUrl,
-    this.title = '',
-    this.direct = false,
-  });
+  const WebPlayerPage({super.key, required this.pageUrl, this.title = ''});
 
   @override
   State<WebPlayerPage> createState() => _WebPlayerPageState();
@@ -34,7 +26,6 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   String? _error;
   bool _fallbacking = false;
   final Set<String> _tried = {};
-  String? _loadedUrl;
 
   @override
   void initState() {
@@ -53,11 +44,6 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   }
 
   Future<void> _init() async {
-    // 解析接口已给出完整播放页，直接加载，不再拼接网页播放接口
-    if (widget.direct) {
-      _loadUrl(widget.pageUrl);
-      return;
-    }
     await WebPlayService.load();
     // 每次进入都拉取最新仓库配置，保证接口列表完整、默认接口可用
     try {
@@ -70,10 +56,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   }
 
   void _load(WebPlayApi api) {
-    _loadUrl(WebPlayService.buildUrl(api, widget.pageUrl), api: api);
-  }
-
-  void _loadUrl(String url, {WebPlayApi? api}) {
+    final url = WebPlayService.buildUrl(api, widget.pageUrl);
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
@@ -91,10 +74,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
             if (!mounted) return;
             setState(() => _loading = false);
             // 记住当前可用接口，下次优先使用
-            if (!widget.direct &&
-                api != null &&
-                _error == null &&
-                _api?.url == api.url) {
+            if (_error == null && _api?.url == api.url) {
               WebPlayService.setPreferred(api.url);
             }
           },
@@ -112,7 +92,6 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
       ..loadRequest(Uri.parse(url));
     setState(() {
       _api = api;
-      _loadedUrl = url;
       _controller = controller;
       _loading = true;
       _error = null;
@@ -121,7 +100,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
 
   /// 当前接口加载失败时，自动尝试列表中的下一个接口
   Future<void> _autoFallback() async {
-    if (widget.direct || _fallbacking) return;
+    if (_fallbacking) return;
     final current = _api;
     final apis = WebPlayService.apis;
     if (current == null || apis.length < 2) return;
@@ -159,9 +138,9 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   }
 
   Future<void> _openInBrowser() async {
-    final url = _loadedUrl;
-    if (url == null) return;
-    final uri = Uri.tryParse(url);
+    final api = _api;
+    if (api == null) return;
+    final uri = Uri.tryParse(WebPlayService.buildUrl(api, widget.pageUrl));
     if (uri == null) return;
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
@@ -185,7 +164,6 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
   }
 
   Future<void> _pickApi() async {
-    if (widget.direct) return;
     // 每次打开都读取最新列表，避免使用页面初始化时的旧数据
     final apis = WebPlayService.apis;
     if (apis.isEmpty) return;
@@ -349,7 +327,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
                       Flexible(
                         flex: 2,
                         child: Text(
-                          _api?.name ?? (widget.direct ? '解析线路' : ''),
+                          _api?.name ?? '',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -359,7 +337,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
                     ],
                   ),
                 ),
-                if (!widget.direct && apis.length > 1)
+                if (apis.length > 1)
                   _barIcon(Icons.swap_horiz_rounded, '切换接口',
                       () => _pickApi(),
                       accent: true),
@@ -375,8 +353,7 @@ class _WebPlayerPageState extends State<WebPlayerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final apis =
-        widget.direct ? const <WebPlayApi>[] : WebPlayService.apis;
+    final apis = WebPlayService.apis;
     return Scaffold(
       backgroundColor: Colors.black,
       body: Column(

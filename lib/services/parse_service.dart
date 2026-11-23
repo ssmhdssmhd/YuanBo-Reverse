@@ -12,8 +12,7 @@ class ParseService {
   static const String _fileName = 'parse_apis.json';
 
   static final List<ParseApi> _apis = [];
-  /// 解析结果缓存（含直链 / 网页播放页标记）
-  static final Map<String, ParseResult> _cache = {};
+  static final Map<String, String> _cache = {};
   static bool _loaded = false;
   static int _timeout = 10;
 
@@ -243,11 +242,11 @@ class ParseService {
   /// 平台视频页是否需要解析
   static bool needsParse(String url) => AppConstants.isPlatformPage(url);
 
-  /// 依次尝试已配置的解析接口，返回可播放的直链或网页播放页
+  /// 依次尝试已配置的解析接口，返回可直接播放的直链
   ///
   /// 优先使用用户指定的解析线路；[noCache] 为 true 时忽略已有结果，
   /// 用于播放中切换解析线路后重新解析。
-  static Future<ParseResult?> resolve(
+  static Future<String?> resolve(
     String pageUrl, {
     void Function(String message)? onLog,
     bool noCache = false,
@@ -289,17 +288,9 @@ class ParseService {
         );
         final url = _extractUrl(res.data);
         if (url != null) {
-          final result = ParseResult(
-            url,
-            // 非媒体直链（如 ext: player）说明是网页播放页
-            isPlayer: !_looksLikeMedia(url),
-            apiName: api.name,
-          );
-          _cache[pageUrl] = result;
-          onLog?.call(result.isPlayer
-              ? '解析成功（${api.name}），使用网页播放'
-              : '解析成功（${api.name}）');
-          return result;
+          _cache[pageUrl] = url;
+          onLog?.call('解析成功（${api.name}）');
+          return url;
         }
         onLog?.call('「${api.name}」未返回有效地址，尝试下一个…');
       } catch (_) {
@@ -323,11 +314,7 @@ class ParseService {
     return '$apiUrl$encoded';
   }
 
-  static String? _extractUrl(
-    dynamic data, [
-    int depth = 0,
-    bool allowAnyUrl = false,
-  ]) {
+  static String? _extractUrl(dynamic data, [int depth = 0]) {
     if (depth > 4 || data == null) return null;
     if (data is String) {
       final s = data.trim();
@@ -339,20 +326,16 @@ class ParseService {
         decoded = jsonDecode(unescaped);
       } catch (_) {}
       if (decoded != null) {
-        final byJson = _extractUrl(decoded, depth + 1, allowAnyUrl);
+        final byJson = _extractUrl(decoded, depth + 1);
         if (byJson != null) return byJson;
       }
       final match =
           RegExp(r'''https?://[^\s"'<>]+''').firstMatch(unescaped);
       final candidate = match?.group(0);
-      if (candidate != null &&
-          (_looksLikeMedia(candidate) || allowAnyUrl)) {
-        return candidate;
-      }
+      if (candidate != null && _looksLikeMedia(candidate)) return candidate;
       return null;
     }
     if (data is Map) {
-      // url 等明确字段允许返回网页播放页（ext: player）
       for (final key in const [
         'url',
         'playurl',
@@ -360,13 +343,10 @@ class ParseService {
         'm3u8',
         'video',
         'src',
+        'data',
+        'result',
+        'content',
       ]) {
-        if (data.containsKey(key)) {
-          final r = _extractUrl(data[key], depth + 1, true);
-          if (r != null) return r;
-        }
-      }
-      for (final key in const ['data', 'result', 'content']) {
         if (data.containsKey(key)) {
           final r = _extractUrl(data[key], depth + 1);
           if (r != null) return r;
@@ -411,13 +391,4 @@ class ParseService {
     final dir = await getApplicationDocumentsDirectory();
     return File('${dir.path}/$_fileName');
   }
-}
-
-/// JSON 解析结果：媒体直链，或需要内置 WebView 打开的网页播放页
-class ParseResult {
-  final String url;
-  final bool isPlayer;
-  final String apiName;
-
-  const ParseResult(this.url, {this.isPlayer = false, this.apiName = ''});
 }
