@@ -8,7 +8,7 @@
 | 项目 | 值 |
 |------|------|
 | 当前版本 | v1.0.50 |
-| 构建时间 | 2026-11-23 |
+| 构建时间 | 2026-11-26 |
 | 技术栈 | Flutter + GetX + video_player + media_kit(MPV) + Dio + WebView |
 | 编译方式 | GitHub Actions 云端编译 |
 
@@ -18,7 +18,7 @@
 - 启动公告：读取仓库根目录 `sygg.txt`，每个版本首次启动弹窗展示（含公告图片）
 - 版本更新公告：读取仓库根目录 `gxgg.txt`，每次版本更新后首次启动弹窗展示更新内容
 - 视频源管理：添加资源站、左滑删除、从仓库一键同步
-- 侧边栏：设置 / 观看历史 / 播放器源 / 视频源管理 / 分享 App / 检查更新
+- 侧边栏：设置 / 观看历史 / 播放器源 / 视频源管理 / 放松一下 / 分享 App / 检查更新
 - 首页全站搜索：一次搜索所有资源站，每条结果绑定所属源，点击直接进详情播放（可在设置中隐藏入口）
 - 资源自动同步：App 启动 / 检查更新时读取仓库 `zyz.txt`，用户无需手动维护
 - 视频分类浏览、搜索、详情
@@ -64,12 +64,26 @@
 
 ## 应用内更新
 
-更新流程：
-1. 侧边栏点击「检查更新」
-2. 请求 GitHub 最新 Release API，同时同步仓库视频源配置
-3. 若有新版本，显示版本号与更新日志
-4. 点击「立即更新」，通过国内镜像（gh-proxy / ghproxy / jsDelivr 等）下载 APK
-5. 下载完成后调起系统安装器
+**启动自动检测**：进入首页后自动请求 GitHub 最新 Release，有新版本立即弹窗「发现新版本 vX」：
+
+- 选择「**立即更新**」：弹窗内下载 APK（国内镜像加速），完成后自动拉起系统安装器
+- 选择「**不更新**」：关闭弹窗继续使用，下次启动仍会提示
+- 检测失败 / 无更新时静默跳过，不影响启动；更新公告 / 公告在更新提示之后展示
+
+侧边栏「检查更新」仍可手动进入：
+
+1. 请求 GitHub 最新 Release API，同时同步仓库视频源配置
+2. 若有新版本，显示版本号与更新日志
+3. 点击「立即更新」，通过国内镜像（gh-proxy / ghproxy / jsDelivr 等）下载 APK
+4. 下载完成后调起系统安装器
+
+## 缓存清理
+
+版本号变化后首次启动自动清理一次缓存（首次安装不清理），确保新版本以干净状态运行：
+
+- 清理内容：内存图片缓存、应用缓存目录、临时文件、文档目录图片碎片、WebView 缓存与 localStorage、已下载的 `.apk` / `.part`
+- 保留内容：观看历史 `watch_history.json`，以及全部 `*.json` / `*.txt` 配置（接口、视频源、播放器设置）
+- 清理成功后才写入版本标记，中途失败下次启动会重试
 
 ## 启动公告
 
@@ -163,17 +177,21 @@
 lib/
 ├── main.dart                  # 入口
 ├── theme/glass_theme.dart     # 玻璃拟态主题
-├── models/                    # 数据模型（VOD / 分类 / 更新信息）
+├── models/                    # VOD / 分类 / 更新信息 / 观看历史 / 解析与网页播放接口
 ├── services/
 │   ├── api_service.dart       # MacCMS API
 │   ├── source_service.dart    # 视频源持久化 + 仓库 zyz.txt 同步
 │   ├── announcement_service.dart # 公告缓存 + 仓库 sygg.txt 同步
-│   ├── settings_service.dart  # 应用设置（播放器样式）
+│   ├── settings_service.dart  # 应用设置（播放器样式 / 云端域名等）
+│   ├── history_service.dart   # 观看历史
 │   ├── parse_service.dart     # JSON 解析接口（本地 / jiexi.json 同步 / 平台解析）
 │   ├── parse_key_service.dart # 云端域名 + 动态 Key（MXDTKEY.php）
-│   └── update_service.dart    # 检查更新 + 镜像下载 APK
+│   ├── web_play_service.dart  # 网页播放接口（webplay.json 同步）
+│   ├── update_service.dart    # 检查更新 + 镜像下载 APK
+│   ├── update_notice_service.dart # 版本更新公告（gxgg.txt）
+│   └── cache_service.dart     # 版本升级自动清理缓存
 ├── pages/
-│   ├── splash_page.dart       # 启动页（版本首次启动弹出公告）
+│   ├── splash_page.dart       # 启动页（公告 / 更新检测入口）
 │   ├── home_page.dart         # 首页（分类 + 列表 + 侧边栏）
 │   ├── detail_page.dart       # 详情页
 │   ├── player_page.dart       # 播放器（简洁版 / 哔哩哔哩风格）
@@ -181,13 +199,21 @@ lib/
 │   ├── settings_page.dart     # 设置页（播放器选择）
 │   ├── player_source_page.dart # 播放器源（内置播放器 / JSON 解析 / 外部播放器）
 │   ├── parse_api_page.dart    # JSON 解析接口管理
+│   ├── web_play_api_page.dart # 网页播放接口管理
+│   ├── web_player_page.dart   # 内置网页播放
+│   ├── web_site_page.dart     # 内置网页站点（放松一下）
+│   ├── history_page.dart      # 观看历史
+│   ├── search_page.dart       # 全站搜索
+│   ├── cast_page.dart         # DLNA 投屏
 │   └── update_page.dart       # 检查更新
 ├── utils/
-│   ├── constants.dart         # 常量 / 视频源解析
+│   ├── constants.dart         # 常量 / 平台页与直链判定
 │   └── text_utils.dart        # 简介 HTML 清洗
 ├── widgets/
 │   ├── glass_card.dart        # 玻璃卡片 / 视频卡片
-│   └── announcement_dialog.dart # 启动公告弹窗
+│   ├── announcement_dialog.dart # 启动公告弹窗
+│   ├── update_dialog.dart     # 启动更新提示与下载进度弹窗
+│   └── update_notice_dialog.dart # 版本更新公告弹窗
 ```
 
 ## 编译
