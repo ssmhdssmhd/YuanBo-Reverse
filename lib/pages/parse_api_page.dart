@@ -22,6 +22,9 @@ class _ParseApiPageState extends State<ParseApiPage> {
   String _keyText = '未获取';
   String _keyTime = '';
 
+  /// 展示用接口地址：动态 Key 替换后的实际请求地址
+  Map<String, String> _effectiveUrls = {};
+
   @override
   void initState() {
     super.initState();
@@ -46,8 +49,19 @@ class _ParseApiPageState extends State<ParseApiPage> {
 
   Future<void> _loadKey() async {
     await ParseKeyService.currentKey();
+    await _refreshEffectiveUrls();
     if (!mounted) return;
     setState(_syncKeyState);
+  }
+
+  /// Key 更新后，同步刷新列表里展示的接口地址
+  Future<void> _refreshEffectiveUrls() async {
+    final urls = <String, String>{};
+    for (final api in ParseService.apis) {
+      urls[api.url] = await ParseKeyService.apply(api.url);
+    }
+    if (!mounted) return;
+    setState(() => _effectiveUrls = urls);
   }
 
   static String _formatTime(DateTime time) {
@@ -69,6 +83,8 @@ class _ParseApiPageState extends State<ParseApiPage> {
     } catch (_) {}
     if (!mounted) return;
     if (!silent) setState(() => _syncing = false);
+    await _refreshEffectiveUrls();
+    if (!mounted) return;
     if (silent) return;
     _toast(added > 0 ? '已同步仓库配置：$added 项变更' : '仓库配置已是最新');
   }
@@ -204,6 +220,7 @@ class _ParseApiPageState extends State<ParseApiPage> {
       _domain = domain;
       _syncKeyState();
     });
+    await _refreshEffectiveUrls();
     _toast(key != null ? '云端域名已更新：$domain' : '域名已保存，但暂未获取到 Key');
   }
 
@@ -216,6 +233,7 @@ class _ParseApiPageState extends State<ParseApiPage> {
       _refreshingKey = false;
       _syncKeyState();
     });
+    await _refreshEffectiveUrls();
     _toast(key != null ? '已从云端刷新 Key' : '获取失败，请检查域名或 MXDTKEY.json');
   }
 
@@ -428,7 +446,7 @@ class _ParseApiPageState extends State<ParseApiPage> {
                                                   fontWeight:
                                                       FontWeight.bold)),
                                           const SizedBox(height: 3),
-                                          Text(api.url,
+                                          Text(_effectiveUrls[api.url] ?? api.url,
                                               maxLines: 2,
                                               overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
