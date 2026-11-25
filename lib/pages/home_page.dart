@@ -11,6 +11,7 @@ import 'package:yuanbo/pages/search_page.dart';
 import 'package:yuanbo/pages/settings_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/pages/update_page.dart';
+import 'package:yuanbo/pages/web_site_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/services/history_service.dart';
 import 'package:yuanbo/services/parse_service.dart';
@@ -504,6 +505,14 @@ class HomePage extends StatelessWidget {
                   }),
                   const SizedBox(height: 8),
                   _drawerSectionTitle('更多'),
+                  _drawerItem(
+                      Icons.spa_rounded, '放松一下', const Color(0xFF9BE7FF), () {
+                    Get.back();
+                    Get.to(() => const WebSitePage(
+                          url: 'https://xjja.ssmhd.com',
+                          title: '放松一下',
+                        ));
+                  }),
                   _drawerItem(
                       Icons.ios_share_rounded, '分享本 App', const Color(0xFFFFC46B),
                       () {
