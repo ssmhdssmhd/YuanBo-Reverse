@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.50 |
+| 当前版本 | v1.0.51 |
 | 构建时间 | 2026-11-26 |
 | 技术栈 | Flutter + GetX + video_player + media_kit(MPV) + Dio + WebView |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -242,6 +242,11 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.51 (20261126)
+- 「放松一下」站点更换为 `https://shuaya.pages.dev`
+- 进入网页前需输入访问密码（默认 `000000`），密码正确才加载网页，本次运行内免重复输入
+- 内置网页页玻璃化美化：渐变光晕背景、毛玻璃顶栏、圆角玻璃网页容器、玻璃加载提示
 
 ### v1.0.50 (20261126)
 - 侧边栏「更多」新增「放松一下」菜单，内置网页打开 `https://xjja.ssmhd.com`

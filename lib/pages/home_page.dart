@@ -509,8 +509,9 @@ class HomePage extends StatelessWidget {
                       Icons.spa_rounded, '放松一下', const Color(0xFF9BE7FF), () {
                     Get.back();
                     Get.to(() => const WebSitePage(
-                          url: 'https://xjja.ssmhd.com',
+                          url: 'https://shuaya.pages.dev',
                           title: '放松一下',
+                          password: '000000',
                         ));
                   }),
                   _drawerItem(
