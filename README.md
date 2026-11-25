@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.47 |
+| 当前版本 | v1.0.48 |
 | 构建时间 | 2026-11-23 |
 | 技术栈 | Flutter + GetX + video_player + media_kit(MPV) + Dio + WebView |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -216,6 +216,11 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.48 (20261126)
+- 每次版本升级自动清理缓存，确保使用最新数据
+- 清理范围扩展：内存图片、临时目录、WebView 缓存与 localStorage、已下载安装包与断点残留
+- 观看历史 `watch_history.json` 与接口/源配置完整保留
 
 ### v1.0.47 (20261126)
 - 启动时自动检测新版本，发现更新后弹窗提供「立即更新 / 不更新」两个选择
