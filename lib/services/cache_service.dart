@@ -6,9 +6,9 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 /// 版本升级自动清理缓存
 ///
-/// 清理图片缓存、临时文件、网页缓存与下载残留，
-/// **保留观看历史**（watch_history.json）以及各类接口/源配置，
-/// 避免用户数据丢失。
+/// 每次版本号变化都会清理一次：内存图片、缓存/临时目录、网页缓存、
+/// 下载残留与图片碎片，确保新版本运行在干净环境。
+/// **保留观看历史**（watch_history.json）以及各类接口/源配置（*.json / *.txt）。
 class CacheService {
   static const String _versionFile = 'last_run_version.txt';
   static const String _historyFile = 'watch_history.json';
@@ -36,7 +36,7 @@ class CacheService {
     }
   }
 
-  /// 清理缓存：内存图片、临时目录、网页缓存、下载残留与图片碎片
+  /// 清理缓存：内存图片、缓存目录、临时目录、网页缓存、下载残留
   static Future<void> clearCache() async {
     // 1. 内存中的图片缓存
     try {
@@ -44,23 +44,23 @@ class CacheService {
       PaintingBinding.instance.imageCache.clearLiveImages();
     } catch (_) {}
 
-    // 2. 临时目录：图片缓存、播放临时文件等全部清理
+    // 2. 应用缓存目录（Android 下通常与临时目录相同）
     try {
-      final temp = await getTemporaryDirectory();
-      await for (final entity in temp.list()) {
-        try {
-          await entity.delete(recursive: true);
-        } catch (_) {}
-      }
+      await _clearDir(await getApplicationCacheDirectory());
     } catch (_) {}
 
-    // 3. 文档目录只清理图片碎片，配置与观看历史一律保留
+    // 3. 临时目录：图片缓存、播放临时文件等
+    try {
+      await _clearDir(await getTemporaryDirectory());
+    } catch (_) {}
+
+    // 4. 文档目录只清理图片碎片，配置与观看历史一律保留
     try {
       final dir = await getApplicationDocumentsDirectory();
       await for (final entity in dir.list()) {
         if (entity is! File) continue;
         final name = _baseName(entity.path);
-        if (name == _historyFile) continue;
+        if (_isProtected(name)) continue;
         const exts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
         if (!exts.any(name.toLowerCase().endsWith)) continue;
         try {
@@ -69,14 +69,14 @@ class CacheService {
       }
     } catch (_) {}
 
-    // 4. 网页播放的 WebView 缓存与 localStorage
+    // 5. 网页播放的 WebView 缓存与 localStorage
     try {
       final controller = WebViewController();
       await controller.clearCache();
       await controller.clearLocalStorage();
     } catch (_) {}
 
-    // 5. 已下载的安装包与断点续传残留
+    // 6. 已下载的安装包与断点续传残留
     try {
       final ext = await getExternalStorageDirectory();
       if (ext != null) {
@@ -91,6 +91,23 @@ class CacheService {
         }
       }
     } catch (_) {}
+  }
+
+  static Future<void> _clearDir(Directory dir) async {
+    if (!await dir.exists()) return;
+    await for (final entity in dir.list()) {
+      if (_isProtected(_baseName(entity.path))) continue;
+      try {
+        await entity.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+
+  /// 观看历史与配置文件不参与缓存清理
+  static bool _isProtected(String name) {
+    if (name == _historyFile || name == _versionFile) return true;
+    final lower = name.toLowerCase();
+    return lower.endsWith('.json') || lower.endsWith('.txt');
   }
 
   static String _baseName(String path) =>
