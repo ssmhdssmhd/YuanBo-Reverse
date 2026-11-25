@@ -126,13 +126,24 @@ class AppConstants {
     ];
   }
 
-  /// 直链媒体地址
-  static final RegExp mediaUrlPattern =
-      RegExp(r'\.(m3u8|mp4|flv|mkv|avi|ts)(\?|$)', caseSensitive: false);
+  /// 直链媒体地址（含常见流媒体 / 视频文件后缀）
+  static final RegExp mediaUrlPattern = RegExp(
+    r'\.(m3u8|m3u|mp4|m4s|m4v|flv|mkv|avi|ts|mov|webm|wmv|mpg|mpeg|3gp|f4v|m4a|mp3|aac)(\?|#|$)',
+    caseSensitive: false,
+  );
 
-  /// 需要解析的平台网页（QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩）
+  /// 需要解析的官方视频站播放页（QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩）
+  ///
+  /// 只匹配网页播放路径；CDN、API 等直链/接口地址不算平台页。
   static final RegExp platformPagePattern = RegExp(
-    r'^(?:https?:)?//(?:[^/]+\.)?(?:v\.qq\.com|iqiyi\.com|youku\.com|mgtv\.com|bilibili\.com|b23\.tv)/',
+    r'^(?:https?:)?//(?:'
+    r'(?:m\.)?v\.qq\.com/(?:x|cover|detail|page)/'
+    r'|(?:www\.|m\.)?iqiyi\.com/(?:v_|a_|w_|v/|album|dianying)'
+    r'|(?:v\.|www\.|m\.)?youku\.com/(?:v_show|video|albums?)/'
+    r'|(?:www\.|m\.|w\.)?mgtv\.com/(?:b|h|v)/'
+    r'|(?:www\.|m\.)?bilibili\.com/(?:video|bangumi|anime|list)/'
+    r'|b23\.tv/[A-Za-z0-9]+'
+    r')',
     caseSensitive: false,
   );
 

@@ -67,8 +67,6 @@ class VodInfo {
   }
 
   static final RegExp _lineSeparator = RegExp(r'\${2,}');
-  static final RegExp _playableUrl =
-      RegExp(r'\.(m3u8|mp4|flv|mkv|avi|ts)(\?|$)', caseSensitive: false);
 
   /// 解析播放线路（多线路用 $$ / $$$ 分隔）
   List<PlayLine> get playLines {
@@ -88,7 +86,8 @@ class VodInfo {
     // 过滤掉网页播放页等无法直接播放的线路；平台视频页（QQ / 爱奇艺等）保留，交给解析接口
     final playable = raw
         .where((l) => l.episodes.any((e) =>
-            _playableUrl.hasMatch(e.url) || AppConstants.isPlatformPage(e.url)))
+            AppConstants.mediaUrlPattern.hasMatch(e.url) ||
+            AppConstants.isPlatformPage(e.url)))
         .toList();
     // 优先 m3u8 流媒体线路：起播快、支持边下边播，加载时间明显更短
     final ordered = [...playable];
