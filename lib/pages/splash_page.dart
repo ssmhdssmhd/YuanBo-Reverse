@@ -8,9 +8,11 @@ import 'package:yuanbo/services/cache_service.dart';
 import 'package:yuanbo/services/history_service.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/update_notice_service.dart';
+import 'package:yuanbo/services/update_service.dart';
 import 'package:yuanbo/theme/glass_theme.dart';
 import 'package:yuanbo/utils/constants.dart';
 import 'package:yuanbo/widgets/announcement_dialog.dart';
+import 'package:yuanbo/widgets/update_dialog.dart';
 import 'package:yuanbo/widgets/update_notice_dialog.dart';
 
 /// 启动页
@@ -62,8 +64,38 @@ class _SplashPageState extends State<SplashPage>
     }
     if (!mounted) return;
     Get.off(() => const HomePage());
-    // 公告 / 更新提示改为进入首页后加载，不再阻塞启动
-    _checkNotices(version);
+    // 进入首页后：先自动检测更新，再展示更新公告 / 公告
+    _postLaunch(version);
+  }
+
+  /// 启动后的后台任务：自动更新检测 → 更新公告 → 公告
+  Future<void> _postLaunch(String version) async {
+    await _checkUpdate();
+    await _checkNotices(version);
+  }
+
+  /// 启动时自动检测新版本，有更新时弹窗让用户选择「立即更新 / 不更新」
+  Future<void> _checkUpdate() async {
+    try {
+      final info = await UpdateService()
+          .checkUpdate()
+          .timeout(const Duration(seconds: 15), onTimeout: () => null);
+      if (info == null) return;
+      // 等待首页挂载完成，避免弹窗因无 context 被跳过
+      for (var i = 0; i < 10 && Get.context == null; i++) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+      if (Get.context == null) return;
+      final go = await Get.dialog<bool>(
+        UpdateAvailableDialog(info: info),
+        barrierDismissible: true,
+      );
+      if (go != true || Get.context == null) return;
+      await Get.dialog(
+        UpdateDownloadDialog(info: info),
+        barrierDismissible: false,
+      );
+    } catch (_) {}
   }
 
   /// 版本更新弹窗与弹出公告：进入首页后再拉取展示
