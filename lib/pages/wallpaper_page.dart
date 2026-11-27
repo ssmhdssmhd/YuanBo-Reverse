@@ -75,6 +75,13 @@ class _WallpaperPageState extends State<WallpaperPage> {
   void _injectHooks() {
     const js = r'''
 (function () {
+  // 隐藏站点自带的顶部导航 / 搜索 / 广告链接，只保留壁纸内容
+  if (!document.getElementById('moxi-wallpaper-style')) {
+    var style = document.createElement('style');
+    style.id = 'moxi-wallpaper-style';
+    style.textContent = 'header.erx-header,.erx-side-nav,#MlTlist1,#MlTlist2,#MlTlist3,#MlPlist1,#MlPlist2,#MlPlist3,.ml-tlist,.ml-plist{display:none!important;}';
+    (document.head || document.documentElement).appendChild(style);
+  }
   if (window.__moxiWallpaperHooked) return;
   window.__moxiWallpaperHooked = true;
   function post(src) {

@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.52 |
+| 当前版本 | v1.0.53 |
 | 构建时间 | 2026-11-26 |
 | 技术栈 | Flutter + GetX + video_player + media_kit(MPV) + Dio + WebView |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -244,6 +244,10 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.53 (20261128)
+- 壁纸精选隐藏站点自带的顶部导航、搜索框、分类入口与广告链接，只保留壁纸内容
+- 隐藏内容：站点 Header、侧边导航、`MlTlist*` / `MlPlist*` 广告区块
 
 ### v1.0.52 (20261126)
 - 侧边栏新增「壁纸精选」（位于「放松一下」上方），内置网页打开 `https://mt123.cc/`
