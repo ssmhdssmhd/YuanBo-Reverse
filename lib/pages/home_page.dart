@@ -11,6 +11,7 @@ import 'package:yuanbo/pages/search_page.dart';
 import 'package:yuanbo/pages/settings_page.dart';
 import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/pages/update_page.dart';
+import 'package:yuanbo/pages/wallpaper_page.dart';
 import 'package:yuanbo/pages/web_site_page.dart';
 import 'package:yuanbo/services/api_service.dart';
 import 'package:yuanbo/services/history_service.dart';
@@ -505,6 +506,15 @@ class HomePage extends StatelessWidget {
                   }),
                   const SizedBox(height: 8),
                   _drawerSectionTitle('更多'),
+                  _drawerItem(
+                      Icons.wallpaper_rounded, '壁纸精选', const Color(0xFFFF9ED2),
+                      () {
+                    Get.back();
+                    Get.to(() => const WallpaperPage(
+                          url: 'https://mt123.cc/',
+                          title: '壁纸精选',
+                        ));
+                  }),
                   _drawerItem(
                       Icons.spa_rounded, '放松一下', const Color(0xFF9BE7FF), () {
                     Get.back();
