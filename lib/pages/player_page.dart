@@ -260,12 +260,23 @@ class _PlayerPageState extends State<PlayerPage> {
       if (mounted) setState(() => _parsing = false);
     }
 
+    // 续播 / 换源后沿用进度：MPV 直接写入起播位置，省掉一次起播后 seek
+    var resumeMs = 0;
+    if (startMs != null && startMs > 0) {
+      resumeMs = startMs;
+    } else if (!_resumeApplied &&
+        widget.startPositionMs > 0 &&
+        ep.url == widget.episode.url) {
+      resumeMs = widget.startPositionMs;
+    }
+
     try {
       _playUrl = target;
       dynamic ctrl;
       if (_style == SettingsService.playerV4) {
         // 播放器 4：libmpv 内核（共享 Player，换集近乎秒开）
         final mpv = MpvPlayerAdapter(target);
+        mpv.startAt(resumeMs);
         await mpv.initialize();
         ctrl = mpv;
       } else {
@@ -278,14 +289,11 @@ class _PlayerPageState extends State<PlayerPage> {
         return;
       }
       await ctrl.setPlaybackSpeed(_speed);
-      if (startMs != null && startMs > 0) {
-        // 播放中切换解析 / 换源：沿用当前进度
-        await ctrl.seekTo(Duration(milliseconds: startMs));
-        _resumeApplied = true;
-      } else if (!_resumeApplied &&
-          widget.startPositionMs > 0 &&
-          ep.url == widget.episode.url) {
-        await ctrl.seekTo(Duration(milliseconds: widget.startPositionMs));
+      if (resumeMs > 0) {
+        // MPV 已通过 start 属性生效，无需再 seek
+        if (_style != SettingsService.playerV4) {
+          await ctrl.seekTo(Duration(milliseconds: resumeMs));
+        }
         _resumeApplied = true;
       }
       _videoCtrl = ctrl;
@@ -299,13 +307,7 @@ class _PlayerPageState extends State<PlayerPage> {
         _controlsVisible = true;
       });
       _scheduleHide();
-      // 提前创建进度预览控制器，保证第一次拖动进度条就能看到缩略图
-      if (_style == SettingsService.playerBili ||
-          _style == SettingsService.playerV4) {
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted && _ready) _ensurePreview();
-        });
-      }
+      // 进度条缩略图改为首次拖动时按需创建，避免起播阶段抢占视频带宽
     } catch (e) {
       if (mounted) {
         setState(() {

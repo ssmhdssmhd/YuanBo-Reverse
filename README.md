@@ -7,7 +7,7 @@
 
 | 项目 | 值 |
 |------|------|
-| 当前版本 | v1.0.54 |
+| 当前版本 | v1.0.55 |
 | 构建时间 | 2026-11-26 |
 | 技术栈 | Flutter + GetX + video_player + media_kit(MPV) + Dio + WebView |
 | 编译方式 | GitHub Actions 云端编译 |
@@ -245,6 +245,12 @@ flutter build apk --release
 - `reverse/analysis/` - API 端点与 Dart 架构分析
 
 ## 版本更新日志
+
+### v1.0.55 (20261128)
+- 播放加速：启动页即预热 libmpv 内核，首次进入播放页更快出画面
+- 续播位置改为 open 前写入 mpv `start`，省去起播后再 seek 的二次缓冲
+- 首帧不再等待缓存填满（`cache-pause-initial=no`）
+- 起播阶段不再提前创建进度预览控制器，避免抢占视频带宽
 
 ### v1.0.54 (20261128)
 - 播放器 4 新增「自动跳过片头 / 片尾」：菜单中可开关并选择 15 / 30 / 45 / 60 / 90 / 120 秒

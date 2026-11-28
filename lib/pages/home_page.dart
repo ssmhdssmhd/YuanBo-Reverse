@@ -58,18 +58,18 @@ class HomeController extends GetxController {
       await loadClasses();
       loadMore();
     } catch (_) {}
-    // 首屏渲染后再静默同步仓库配置，避免与首屏请求抢网络、拖慢启动
+    // 首屏渲染后立即预热播放器内核（纯本地初始化，不与网络请求抢带宽）
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (SettingsService.currentPlayerStyle == SettingsService.playerV4) {
+        MpvPlayerAdapter.prewarm();
+      }
+      // 稍后再静默同步仓库配置，避免与首屏请求抢网络、拖慢启动
       Future.delayed(const Duration(seconds: 2), () {
         // 启动后静默同步仓库配置，用户无需手动维护
         syncSources();
         // 解析接口 / 网页播放接口同样随仓库实时生效，无需重新编译安装
         ParseService.sync();
         WebPlayService.sync();
-        // 使用播放器 4（MPV）时提前加载 libmpv 内核，进入播放页近乎秒开
-        if (SettingsService.currentPlayerStyle == SettingsService.playerV4) {
-          MpvPlayerAdapter.prewarm();
-        }
       });
     });
   }

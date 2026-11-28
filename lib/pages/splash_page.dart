@@ -6,6 +6,7 @@ import 'package:yuanbo/pages/source_page.dart';
 import 'package:yuanbo/services/announcement_service.dart';
 import 'package:yuanbo/services/cache_service.dart';
 import 'package:yuanbo/services/history_service.dart';
+import 'package:yuanbo/services/mpv_player_adapter.dart';
 import 'package:yuanbo/services/settings_service.dart';
 import 'package:yuanbo/services/update_notice_service.dart';
 import 'package:yuanbo/services/update_service.dart';
@@ -46,6 +47,12 @@ class _SplashPageState extends State<SplashPage>
       SettingsService.getShowSearch(),
       HistoryService.load(),
     ]);
+    // 启动阶段即预热 libmpv 内核，首次进入播放页更快出画面
+    if (SettingsService.currentPlayerStyle == SettingsService.playerV4) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        MpvPlayerAdapter.prewarm();
+      });
+    }
     var version = '';
     try {
       final pkg = await PackageInfo.fromPlatform();

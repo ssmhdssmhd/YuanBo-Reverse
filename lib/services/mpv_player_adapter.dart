@@ -33,6 +33,13 @@ class MpvPlayerAdapter extends ChangeNotifier {
   late final VideoController videoController;
   final List<StreamSubscription<dynamic>> _subs = [];
 
+  /// 起播位置（毫秒）：在 open 前写入 mpv `start`，避免起播后再 seek 二次缓冲
+  int _startMs = 0;
+
+  void startAt(int ms) {
+    _startMs = ms > 0 ? ms : 0;
+  }
+
   /// 全局共享的 libmpv 内核（只创建一次，避免重复加载动态库）
   static Player? _sharedPlayer;
   static VideoController? _sharedController;
@@ -66,6 +73,8 @@ class MpvPlayerAdapter extends ChangeNotifier {
       'hwdec': 'auto-safe',
       // 网络流缓存：快速起播 + 后台持续填充
       'cache': 'yes',
+      // 首帧不等缓存填满，尽快出画面
+      'cache-pause-initial': 'no',
       'demuxer-readahead-secs': '6',
       'cache-secs': '10',
       'network-timeout': '8',
@@ -158,11 +167,24 @@ class MpvPlayerAdapter extends ChangeNotifier {
     }));
     // 直接起播（play: true），不等 open 完成才渲染 UI；
     // 画面尺寸 / 时长流到达后即视为初始化完成
+    _applyStart();
     unawaited(player.open(Media(url), play: true).catchError((Object e) {
       _error = e.toString();
       _initialized = true;
       notifyListeners();
     }));
+  }
+
+  void _applyStart() {
+    try {
+      final platform = player.platform;
+      if (platform is NativePlayer) {
+        platform.setProperty(
+          'start',
+          _startMs > 0 ? (_startMs / 1000).toStringAsFixed(3) : '0',
+        );
+      }
+    } catch (_) {}
   }
 
   Future<void> play() => player.play();
