@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:ui' as ui;
 
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:android_intent_plus/flag.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -136,6 +138,23 @@ class _PlayerPageState extends State<PlayerPage> {
   /// 画质增强模式（0 标准、1 鲜艳、2 明亮、3 柔和）
   int _quality = 0;
 
+  /// 画面铺满（裁边），关闭时保持原始比例并显示环境模糊背景
+  bool _videoFill = false;
+
+  /// 自动跳过片头 / 片尾
+  bool _skipIntro = false;
+  int _introSeconds = 90;
+  bool _skipOutro = false;
+  int _outroSeconds = 30;
+  bool _introSkipped = false;
+  bool _outroSkipped = false;
+
+  /// 跳过提示（可撤销）
+  String? _skipUndoLabel;
+  int? _skipUndoMs;
+  bool _skipUndoIsIntro = false;
+  Timer? _skipUndoTimer;
+
   /// 0 = 简洁版，1 = 哔哩哔哩风格（横屏 + 播放器内选集）
   int _style = SettingsService.currentPlayerStyle;
   List<PlayEpisode> _episodes = const [];
@@ -157,6 +176,11 @@ class _PlayerPageState extends State<PlayerPage> {
   Future<void> _init() async {
     _style = await SettingsService.getPlayerStyle();
     _quality = await SettingsService.getQuality();
+    _videoFill = await SettingsService.getVideoFill();
+    _skipIntro = await SettingsService.getSkipIntro();
+    _introSeconds = await SettingsService.getIntroSeconds();
+    _skipOutro = await SettingsService.getSkipOutro();
+    _outroSeconds = await SettingsService.getOutroSeconds();
     final pip = await SettingsService.getPipEnabled();
     await SystemLevelService.setPipEnabled(pip);
     await SystemLevelService.setPlaying(true);
@@ -200,6 +224,9 @@ class _PlayerPageState extends State<PlayerPage> {
     _videoCtrl = null;
     _disposePreview();
     _setKeepScreenOn(false);
+    _introSkipped = false;
+    _outroSkipped = false;
+    _clearSkipUndo();
 
     var target = ep.url;
     // QQ / 爱奇艺 / 优酷 / 芒果TV / 哔哩哔哩 等平台播放页先走 JSON 解析
@@ -329,7 +356,82 @@ class _PlayerPageState extends State<PlayerPage> {
       _lastHistorySave = now;
       _recordHistory();
     }
+    _maybeAutoSkip();
     setState(() {});
+  }
+
+  /// 自动跳过片头 / 片尾（仅在时长足够、配置合理时生效）
+  void _maybeAutoSkip() {
+    final ctrl = _videoCtrl;
+    if (ctrl == null) return;
+    final value = ctrl.value;
+    final durMs = value.duration.inMilliseconds;
+    if (durMs <= 0) return;
+    final posMs = value.position.inMilliseconds;
+
+    if (_skipIntro && !_introSkipped && _introSeconds > 0) {
+      final introEnd = _introSeconds * 1000;
+      // 片头不能占全片过多，避免短视频被误跳
+      if (introEnd < durMs * 0.7 &&
+          posMs >= 500 &&
+          posMs < introEnd - 1200) {
+        _introSkipped = true;
+        ctrl.seekTo(Duration(milliseconds: introEnd));
+        _showSkipUndo('已跳过片头 $_introSeconds 秒', posMs, isIntro: true);
+        return;
+      }
+    }
+
+    if (_skipOutro && !_outroSkipped && _outroSeconds > 0) {
+      final outroStart = durMs - _outroSeconds * 1000;
+      if (outroStart > durMs * 0.5 &&
+          posMs >= outroStart &&
+          posMs < durMs - 1200) {
+        _outroSkipped = true;
+        if (_episodeIndex < _episodes.length - 1) {
+          _toast('已跳过片尾，播放下一集');
+          _nextEpisode();
+        } else {
+          ctrl.seekTo(Duration(milliseconds: durMs));
+          _showSkipUndo('已跳过片尾', posMs, isIntro: false);
+        }
+      }
+    }
+  }
+
+  void _showSkipUndo(String label, int fromMs, {required bool isIntro}) {
+    _skipUndoTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _skipUndoLabel = label;
+      _skipUndoMs = fromMs;
+      _skipUndoIsIntro = isIntro;
+    });
+    _skipUndoTimer = Timer(const Duration(seconds: 8), _clearSkipUndo);
+  }
+
+  void _clearSkipUndo() {
+    _skipUndoTimer?.cancel();
+    if (!mounted) return;
+    if (_skipUndoLabel == null) return;
+    setState(() {
+      _skipUndoLabel = null;
+      _skipUndoMs = null;
+    });
+  }
+
+  /// 撤销本次自动跳过
+  void _undoSkip() {
+    final from = _skipUndoMs;
+    if (from == null) return;
+    _videoCtrl?.seekTo(Duration(milliseconds: from));
+    if (_skipUndoIsIntro) {
+      _introSkipped = false;
+    } else {
+      _outroSkipped = false;
+    }
+    _clearSkipUndo();
+    _toast('已撤销跳过');
   }
 
   /// 写入观看历史（资源站 + 影片维度，位置随播放进度更新）
@@ -1225,6 +1327,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _hintTimer?.cancel();
     _hudTimer?.cancel();
     _lockTipTimer?.cancel();
+    _skipUndoTimer?.cancel();
     _recordHistory();
     _disposePreview();
     SystemLevelService.setPlaying(false);
@@ -1415,15 +1518,70 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   /// 视频画面：MPV 走 media_kit 的 Video 组件，其余走 video_player
-  Widget _videoSurface(dynamic ctrl) {
+  Widget _videoSurface(dynamic ctrl, {BoxFit fit = BoxFit.contain}) {
     if (ctrl is MpvPlayerAdapter) {
       return Video(
         controller: ctrl.videoController,
         controls: NoVideoControls,
-        fit: BoxFit.contain,
+        fit: fit,
       );
     }
-    return VideoPlayer(ctrl);
+    final player = ctrl as VideoPlayerController;
+    if (fit == BoxFit.cover) {
+      final w = player.value.size.width > 0 ? player.value.size.width : 16.0;
+      final h = player.value.size.height > 0 ? player.value.size.height : 9.0;
+      return FittedBox(
+        fit: BoxFit.cover,
+        clipBehavior: Clip.hardEdge,
+        child: SizedBox(width: w, height: h, child: VideoPlayer(player)),
+      );
+    }
+    return VideoPlayer(player);
+  }
+
+  /// 环境模糊背景：用封面图填充左右黑边区域，让画面更沉浸
+  Widget _buildAmbientBackground() {
+    final pic = widget.vodPic;
+    Widget base;
+    if (pic.isEmpty) {
+      base = const DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF161228), Color(0xFF0A0913)],
+          ),
+        ),
+      );
+    } else {
+      base = CachedNetworkImage(
+        imageUrl: pic,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => const ColoredBox(color: Color(0xFF0B0A14)),
+        errorWidget: (_, __, ___) => const ColoredBox(color: Color(0xFF0B0A14)),
+      );
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Transform.scale(
+          scale: 1.18,
+          child: ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+            child: base,
+          ),
+        ),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0x99000000), Color(0xCC000000)],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildPlayer() {
@@ -1466,19 +1624,31 @@ class _PlayerPageState extends State<PlayerPage> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Center(
-            child: AspectRatio(
-              aspectRatio: value.size.width > 0 && value.size.height > 0
-                  ? value.size.width / value.size.height
-                  : 16 / 9,
+          // 左右黑边改为封面模糊背景，画面更沉浸
+          Positioned.fill(child: _buildAmbientBackground()),
+          if (_videoFill)
+            Positioned.fill(
               child: _qualityFilter == null
-                  ? _videoSurface(ctrl)
+                  ? _videoSurface(ctrl, fit: BoxFit.cover)
                   : ColorFiltered(
                       colorFilter: _qualityFilter!,
-                      child: _videoSurface(ctrl),
+                      child: _videoSurface(ctrl, fit: BoxFit.cover),
                     ),
+            )
+          else
+            Center(
+              child: AspectRatio(
+                aspectRatio: value.size.width > 0 && value.size.height > 0
+                    ? value.size.width / value.size.height
+                    : 16 / 9,
+                child: _qualityFilter == null
+                    ? _videoSurface(ctrl)
+                    : ColorFiltered(
+                        colorFilter: _qualityFilter!,
+                        child: _videoSurface(ctrl),
+                      ),
+              ),
             ),
-          ),
           if (value.isBuffering)
             const Center(
               child: SizedBox(
@@ -1644,6 +1814,32 @@ class _PlayerPageState extends State<PlayerPage> {
         child: Text(
           _mpvThemeNames[_mpvTheme],
           style: TextStyle(color: color, fontSize: 10, letterSpacing: 0.5),
+        ),
+      ),
+    );
+  }
+
+  /// 自动跳过后的可撤销提示（显示在主题标签下方）
+  Widget _skipUndoPill(Color color) {
+    return GestureDetector(
+      onTap: _undoSkip,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.6)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_skipUndoLabel ?? '',
+                style: const TextStyle(color: Colors.white, fontSize: 10.5)),
+            const SizedBox(width: 5),
+            Icon(Icons.undo_rounded, size: 12, color: color),
+            const SizedBox(width: 2),
+            Text('撤销', style: TextStyle(color: color, fontSize: 10.5)),
+          ],
         ),
       ),
     );
@@ -1819,7 +2015,18 @@ class _PlayerPageState extends State<PlayerPage> {
                           color: Colors.white70, fontSize: 12),
                     ),
                   ),
-                  _mpvThemeSwitch(pink),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _mpvThemeSwitch(pink),
+                      if (_skipUndoLabel != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: _skipUndoPill(pink),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -2298,6 +2505,21 @@ class _PlayerPageState extends State<PlayerPage> {
               item(Icons.tonality_outlined,
                   '画质增强：${const ['标准', '鲜艳', '明亮', '柔和'][_quality.clamp(0, 3)]}',
                   () => _selectQuality((_quality + 1) % 4)),
+              item(
+                  Icons.skip_next_rounded,
+                  '自动跳过片头：${_skipIntro ? '$_introSeconds 秒' : '关闭'}',
+                  () => _showSkipSetting(intro: true)),
+              item(
+                  Icons.skip_next_rounded,
+                  '自动跳过片尾：${_skipOutro ? '$_outroSeconds 秒' : '关闭'}',
+                  () => _showSkipSetting(intro: false)),
+              item(
+                  Icons.aspect_ratio_rounded,
+                  '画面铺满（裁边）：${_videoFill ? '开' : '关'}',
+                  () async {
+                await SettingsService.setVideoFill(!_videoFill);
+                if (mounted) setState(() => _videoFill = !_videoFill);
+              }),
               item(Icons.loop_rounded, '单集循环', () {
                 final c = _videoCtrl;
                 if (c == null) return;
@@ -2316,6 +2538,123 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
         );
       },
+    );
+  }
+
+  /// 自动跳过片头 / 片尾设置
+  Future<void> _showSkipSetting({required bool intro}) async {
+    _hideTimer?.cancel();
+    var enabled = intro ? _skipIntro : _skipOutro;
+    var seconds = intro ? _introSeconds : _outroSeconds;
+    const options = [15, 30, 45, 60, 90, 120];
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF16141F),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  intro ? '自动跳过片头' : '自动跳过片尾',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  intro
+                      ? '开始播放后自动跳到设定位置，跳过后可在画面右上角撤销'
+                      : '播放到剩余设定时长时自动跳到下一集',
+                  style:
+                      const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: enabled,
+                  activeColor: const Color(0xFFFF4D6D),
+                  title: Text(enabled ? '已开启' : '已关闭',
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 13)),
+                  onChanged: (v) => setSheet(() => enabled = v),
+                ),
+                const Text('跳转时长',
+                    style:
+                        TextStyle(color: Colors.white54, fontSize: 12)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: options
+                      .map((s) => ChoiceChip(
+                            label: Text('$s 秒'),
+                            labelStyle: TextStyle(
+                              color: seconds == s
+                                  ? Colors.white
+                                  : Colors.white54,
+                              fontSize: 12,
+                            ),
+                            selected: seconds == s,
+                            selectedColor: const Color(0xFFFF4D6D),
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.06),
+                            side: BorderSide(
+                                color:
+                                    Colors.white.withValues(alpha: 0.12)),
+                            onSelected: (_) =>
+                                setSheet(() => seconds = s),
+                          ))
+                      .toList(),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('取消'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF4D6D)),
+                        onPressed: () async {
+                          Navigator.of(ctx).pop();
+                          if (intro) {
+                            _skipIntro = enabled;
+                            _introSeconds = seconds;
+                            _introSkipped = false;
+                            await SettingsService.setSkipIntro(enabled);
+                            await SettingsService.setIntroSeconds(seconds);
+                          } else {
+                            _skipOutro = enabled;
+                            _outroSeconds = seconds;
+                            _outroSkipped = false;
+                            await SettingsService.setSkipOutro(enabled);
+                            await SettingsService.setOutroSeconds(seconds);
+                          }
+                          if (mounted) setState(() {});
+                        },
+                        child: const Text('保存'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 

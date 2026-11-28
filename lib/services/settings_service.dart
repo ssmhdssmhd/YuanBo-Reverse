@@ -34,6 +34,15 @@ class SettingsService {
   static bool _showSearch = true;
   static int _quality = 0;
   static bool _pipEnabled = false;
+
+  /// 自动跳过片头 / 片尾
+  static bool _skipIntro = false;
+  static int _introSeconds = 90;
+  static bool _skipOutro = false;
+  static int _outroSeconds = 30;
+
+  /// 画面铺满（裁边），默认保持原始比例
+  static bool _videoFill = false;
   static bool _loaded = false;
 
   /// 已缓存的播放器样式（启动页预加载后可同步读取）
@@ -123,6 +132,61 @@ class SettingsService {
     await _save();
   }
 
+  static Future<bool> getSkipIntro() async {
+    if (!_loaded) await _load();
+    return _skipIntro;
+  }
+
+  static Future<void> setSkipIntro(bool value) async {
+    _skipIntro = value;
+    _loaded = true;
+    await _save();
+  }
+
+  static Future<int> getIntroSeconds() async {
+    if (!_loaded) await _load();
+    return _introSeconds;
+  }
+
+  static Future<void> setIntroSeconds(int value) async {
+    _introSeconds = value.clamp(0, 600).toInt();
+    _loaded = true;
+    await _save();
+  }
+
+  static Future<bool> getSkipOutro() async {
+    if (!_loaded) await _load();
+    return _skipOutro;
+  }
+
+  static Future<void> setSkipOutro(bool value) async {
+    _skipOutro = value;
+    _loaded = true;
+    await _save();
+  }
+
+  static Future<int> getOutroSeconds() async {
+    if (!_loaded) await _load();
+    return _outroSeconds;
+  }
+
+  static Future<void> setOutroSeconds(int value) async {
+    _outroSeconds = value.clamp(0, 600).toInt();
+    _loaded = true;
+    await _save();
+  }
+
+  static Future<bool> getVideoFill() async {
+    if (!_loaded) await _load();
+    return _videoFill;
+  }
+
+  static Future<void> setVideoFill(bool value) async {
+    _videoFill = value;
+    _loaded = true;
+    await _save();
+  }
+
   static Future<void> _load() async {
     try {
       final file = await _file();
@@ -154,6 +218,21 @@ class SettingsService {
           if (data['pip'] is bool) {
             _pipEnabled = data['pip'] as bool;
           }
+          if (data['skipIntro'] is bool) {
+            _skipIntro = data['skipIntro'] as bool;
+          }
+          if (data['introSeconds'] is int) {
+            _introSeconds = (data['introSeconds'] as int).clamp(0, 600).toInt();
+          }
+          if (data['skipOutro'] is bool) {
+            _skipOutro = data['skipOutro'] as bool;
+          }
+          if (data['outroSeconds'] is int) {
+            _outroSeconds = (data['outroSeconds'] as int).clamp(0, 600).toInt();
+          }
+          if (data['videoFill'] is bool) {
+            _videoFill = data['videoFill'] as bool;
+          }
         }
       }
     } catch (_) {}
@@ -171,6 +250,11 @@ class SettingsService {
         'showSearch': _showSearch,
         'quality': _quality,
         'pip': _pipEnabled,
+        'skipIntro': _skipIntro,
+        'introSeconds': _introSeconds,
+        'skipOutro': _skipOutro,
+        'outroSeconds': _outroSeconds,
+        'videoFill': _videoFill,
       }));
     } catch (_) {}
   }
